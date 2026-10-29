@@ -24,9 +24,11 @@ fastapi>=0.141.0             # 后端 REST + SSE 流式接口
 uvicorn>=0.52.0              # ASGI 服务器
 sse-starlette>=3.4.0         # SSE 响应支持（fastapi 传递依赖，显式声明）
 
-# ---- MCP Server（桥接 Java ERP 后端）----
-mcp>=1.29.0                  # MCP 协议实现
-fastmcp>=3.2.0               # FastMCP 工具注册与 streamable-http 传输
+# ---- MCP Server（采购工具，直连 PostgreSQL）----
+# 必须成对锁定上限：fastmcp 4.x 要求 mcp>=2，而 langchain-mcp-adapters 要求 mcp<2，
+# 不同时限版本会让全新安装直接解析失败（本地已验证过的坑）。
+mcp>=1.24.0,<2.0.0           # MCP 协议实现
+fastmcp>=3.2.0,<4.0.0        # FastMCP 工具注册与 streamable-http 传输
 
 # ---- 数据库 ----
 psycopg[binary,pool]>=3.3.0  # PostgreSQL 驱动 + 二进制包 + 连接池

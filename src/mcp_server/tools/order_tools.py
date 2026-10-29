@@ -1,13 +1,28 @@
+"""
+采购订单工具（MCP）：order_create / order_update / order_search_details。
+
+设计要点（面试可直接讲的部分）：
+    1. 幂等在工具层，不在数据库层：MCP 是 Agent 唯一能触达的写入口，
+       把"业务指纹 → 首次响应"缓存放这里，Agent 重试、用户连点审批、
+       SSE 断线重连都不会重复下单；数据库层保持纯粹。
+    2. 指纹剔除易变字段：orderNumber / orderTime 每次调用都会变，
+       不剔除的话同一笔业务请求每次指纹都不同，去重形同虚设。
+    3. 抢占而非仅查询：get → 写库 → put 之间无互斥，两个并发同指纹请求会双双
+       miss。claim() 用 pending 占位表的 PRIMARY KEY 冲突做原子抢占，
+       抢不到就直接返回"处理中"，绝不再打一次库。
+    4. 总额由 repository 用 Decimal 重算：不接受调用方自算的总额，
+       避免"库里金额和明细对不上"这种最难查的账。
+"""
+
+from __future__ import annotations
+
 import logging
-import random
 import threading
-from datetime import datetime
-from decimal import Decimal
+from typing import Any, Dict, List, Optional
 
 from fastmcp import FastMCP, Context
 
-from typing import Optional, List
-
+from mcp_server import repository as repo
 from mcp_server.idempotency import IdempotencyStore, compute_fingerprint
 from mcp_server.server_config import IDEMPOTENCY_DB_PATH, IDEMPOTENCY_TTL_SECONDS
 
@@ -15,18 +30,12 @@ logger = logging.getLogger(__name__)
 
 GROUP_NAME = "order"
 
-
-# ============================================================
-# 幂等存储（P0）
-# ============================================================
-# 惰性单例：不在 import 阶段就建库文件/开连接，
-# 这样本模块可以被单测直接导入而不产生副作用。
+# 幂等存储惰性单例：import 本模块不产生磁盘/连接副作用，便于单测直接导入
 _store_instance: Optional[IdempotencyStore] = None
 _store_lock = threading.Lock()
 
 
 def _store() -> IdempotencyStore:
-    """获取幂等存储单例（双重检查锁，兼容多线程调用）。"""
     global _store_instance
     if _store_instance is None:
         with _store_lock:
@@ -35,345 +44,217 @@ def _store() -> IdempotencyStore:
     return _store_instance
 
 
-def _idempotency_key(tool_name: str, request_data: dict, explicit_key: Optional[str]) -> tuple[str, str]:
-    """计算 (幂等键, 请求指纹)。
-
-    键的来源优先级：
-      1. 调用方显式传入的 idempotency_key（前端/上游有业务唯一号时最准确）；
-      2. 由业务字段指纹推导（无需上游改造，天然覆盖"Agent 重试/用户重复点审批"）。
-
-    指纹排除 orderNumber/orderTime 等每次调用都会变的字段 —— 否则重试时指纹不同，
-    去重会完全失效（见 idempotency.compute_fingerprint）。
-    """
-    fingerprint = compute_fingerprint(request_data)
-    key = (explicit_key or "").strip() or f"{tool_name}:{fingerprint}"
-    return key, fingerprint
-
-
-def _claim_failed_response(store: IdempotencyStore, idem_key: str, fingerprint: str) -> dict:
-    """抢占失败时的统一响应。
-
-    抢占失败的两种可能：
-      1. 同指纹请求正在处理中 → 返回"处理中"，让调用方稍后重试（绝不能再去打后端）；
-      2. 该请求刚好已经执行完成（首次响应已落库）→ 直接把首次结果当重放返回。
-    第二步必须复查一次 get()，否则第 2 种情况会误报"处理中"。
-    """
-    cached = store.get(idem_key)
+def _replay_or_busy(store: IdempotencyStore, key: str, fingerprint: str) -> Dict[str, Any]:
+    """抢占失败时的统一响应：已落库则重放，正在处理则让调用方稍后重试。"""
+    cached = store.get(key)
     if cached is not None and cached.fingerprint == fingerprint:
-        logger.info("幂等抢占失败但结果已落库，按重放返回: %s", idem_key)
+        logger.info("幂等命中，按首次结果重放: %s", key)
         if isinstance(cached.response, dict):
-            return {**cached.response, "idempotent_replay": True, "idempotency_key": idem_key}
+            return {**cached.response, "idempotent_replay": True, "idempotency_key": key}
         return cached.response
-    return {
-        "error": "该请求正在处理中，请稍后重试",
-        "in_progress": True,
-        "idempotency_key": idem_key,
-    }
+    return {"error": "该请求正在处理中，请稍后重试（不要重复提交）", "in_progress": True, "idempotency_key": key}
 
 
-def _generate_order_number() -> str:
-    """生成订单编号：PO + 年月日(8位) + 3位随机数字"""
-    today = datetime.now().strftime("%Y%m%d")
-    suffix = str(random.randint(0, 999)).zfill(3)
-    return f"PO{today}{suffix}"
-
-
-def _prepare_request(data: dict) -> dict:
-    """填充默认值并序列化请求体：Decimal→float，date→ISO字符串"""
-    # 自动生成 orderNumber
-    if not data.get("orderNumber"):
-        data["orderNumber"] = _generate_order_number()
-
-    # 默认 orderTime（格式：yyyy-MM-ddTHH:mm:ss.SSS，匹配后端 CustomLocalDateTimeDeserializer）
-    if not data.get("orderTime"):
-        now = datetime.now()
-        data["orderTime"] = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}"
-
-    # 递归序列化
-    return _serialize_request(data)
-
-
-def _serialize_request(data: dict) -> dict:
-    """递归处理：Decimal → float，date/datetime → ISO 字符串"""
-    for key, value in data.items():
-        if isinstance(value, Decimal):
-            data[key] = float(value)
-        elif hasattr(value, "isoformat"):
-            data[key] = value.isoformat()
-        elif isinstance(value, list):
-            for item in value:
-                if isinstance(item, dict):
-                    _serialize_request(item)
-        elif isinstance(value, dict):
-            _serialize_request(value)
-    return data
-
-
-def register_order_tools(mcp: FastMCP):
-    """注册订单分组的所有工具"""
+def register_order_tools(mcp: FastMCP) -> None:
+    """注册订单分组工具。"""
 
     @mcp.tool(name=f"{GROUP_NAME}_create")
     async def create_order(
+        supplier_id: int,
         order_detail: List[dict],
-        order_number: Optional[str] = None,
-        total_amount: Optional[float] = None,
-        status: Optional[int] = None,
-        order_time: Optional[str] = None,
+        project_id: Optional[int] = None,
         expected_delivery_date: Optional[str] = None,
-        actual_delivery_date: Optional[str] = None,
-        created_by: Optional[int] = None,
+        status: int = 1,
+        order_number: Optional[str] = None,
+        created_by: str = "agent",
         remark: Optional[str] = None,
         idempotency_key: Optional[str] = None,
         ctx: Context = None,
     ) -> dict:
-        """
-        创建采购订单（POST /orders/create）。
+        """创建采购订单（写入 PostgreSQL 的 erp.purchase_order 与明细表）。
 
-        orderNumber 不传则自动生成（规则：PO+年月日+3位随机数字）。
-        orderTime 不传则默认当前时间（格式：yyyy-MM-ddTHH:mm:ss.SSS）。
-        orderDetail 必填，至少包含一个明细项；每项需提供 partId、quantity、unitPrice。
-
-        幂等：相同业务内容（相同明细/金额/交期等）在去重时间窗内重复调用只会真正下单一次，
-        第二次起返回首次结果并带 idempotent_replay=true。
+        调用前请先用 material_query 确认物料 ID 与当前报价，用 supplier_query 确认供应商 ID。
+        物料必须用 ID，不接受物料名称——名称相似度判断放在查询工具里做，写操作只认主键。
 
         Args:
-            order_detail: 订单明细列表，每项需提供 partId, quantity, unitPrice，可选 subtotal, remark
-            order_number: 订单编号（唯一标识），不传则自动生成
-            total_amount: 订单总金额，不传则自动根据明细计算
-            status: 订单状态(1-待审核, 2-已审核, 3-采购中, 4-已入库, 5-已取消)，默认1
-            order_time: 下单时间，格式 yyyy-MM-ddTHH:mm:ss.SSS，不传则默认当前时间
-            expected_delivery_date: 预计交货日期，格式 yyyy-MM-dd
-            actual_delivery_date: 实际交货日期，格式 yyyy-MM-dd
-            created_by: 创建人 ID
+            supplier_id: 供应商 ID（必填，来自 supplier_query）
+            order_detail: 明细数组，每项必须含 materialId、quantity、unitPrice，可选 remark
+            project_id: 关联项目 ID（可选，通用备料可不传）
+            expected_delivery_date: 预计交货日期 yyyy-MM-dd（建议传，便于跟催）
+            status: 初始状态，默认 1=待审核
+            order_number: 订单编号，不传则自动生成 PO+年月日+3位随机数
+            created_by: 创建人标识
             remark: 备注
-            idempotency_key: 调用方提供的幂等键（可选）。不传则用业务内容指纹自动推导
+            idempotency_key: 调用方幂等键（可选）；不传则用业务内容指纹自动推导
+
+        幂等：相同业务内容在去重时间窗内重复调用只真正下单一次，
+        第二次起返回首次结果并带 idempotent_replay=true。
+
+        返回：{"ok": true, "order": {...}} 或 {"error": "..."}
         """
-        http_client = ctx.request_context.lifespan_context.get("http_client")
+        request_data: Dict[str, Any] = {
+            "supplierId": supplier_id,
+            "projectId": project_id,
+            "expectedDeliveryDate": expected_delivery_date,
+            "status": status,
+            "remark": remark,
+            "details": [
+                {
+                    "materialId": d.get("materialId") or d.get("material_id"),
+                    "quantity": d.get("quantity"),
+                    "unitPrice": d.get("unitPrice") or d.get("unit_price"),
+                }
+                for d in order_detail
+            ],
+        }
+        fingerprint = compute_fingerprint(request_data)
+        key = (idempotency_key or "").strip() or f"{GROUP_NAME}_create:{fingerprint}"
 
-        # 构建请求体（映射到 API 字段名）
-        request_data = {}
-        if order_number is not None:
-            request_data["orderNumber"] = order_number
-        if total_amount is not None:
-            request_data["totalAmount"] = total_amount
-        if status is not None:
-            request_data["status"] = status
-        if order_time is not None:
-            request_data["orderTime"] = order_time
-        if expected_delivery_date is not None:
-            request_data["expectedDeliveryDate"] = expected_delivery_date
-        if actual_delivery_date is not None:
-            request_data["actualDeliveryDate"] = actual_delivery_date
-        if created_by is not None:
-            request_data["createdBy"] = created_by
-        if remark is not None:
-            request_data["remark"] = remark
-        if order_detail is not None:
-            request_data["orderDetail"] = order_detail
-
-        request_data = _prepare_request(request_data)
-
-        # ---- 幂等前置检查（P0）----
-        # 命中且指纹一致 → 说明这笔业务请求已经真正执行过，直接返回首次响应，
-        # 不再打后端。这样"用户重复点审批""SSE 断线后重试"都不会产生重复订单。
-        idem_key, fingerprint = _idempotency_key(f"{GROUP_NAME}_create", request_data, idempotency_key)
-        cached = _store().get(idem_key)
-        if cached is not None and cached.fingerprint == fingerprint:
-            logger.info("order_create 命中幂等记录，跳过重复下单: %s", idem_key)
-            if isinstance(cached.response, dict):
-                return {**cached.response, "idempotent_replay": True, "idempotency_key": idem_key}
-            return cached.response
-
-        # ---- 抢占执行权（并发去重）----
-        # get→打后端→put 之间没有互斥：两个同指纹请求并发进来会双双 miss、各下一单。
-        # claim() 用 PRIMARY KEY 冲突做原子抢占，抢不到说明已有同指纹请求在处理中，
-        # 此时绝不能再去打后端（否则照样重复下单）。
         store = _store()
-        if not store.claim(idem_key, fingerprint):
-            logger.info("order_create 同指纹请求正在处理中，拒绝重复下单: %s", idem_key)
-            return _claim_failed_response(store, idem_key, fingerprint)
+        cached = store.get(key)
+        if cached is not None and cached.fingerprint == fingerprint:
+            logger.info("order_create 命中幂等记录，跳过重复下单: %s", key)
+            return _replay_or_busy(store, key, fingerprint)
+        if not store.claim(key, fingerprint):
+            logger.info("order_create 同指纹请求正在处理中，拒绝重复下单: %s", key)
+            return _replay_or_busy(store, key, fingerprint)
 
         try:
-            # 请求体在 debug 级日志里已足够排查问题，不再 print 到控制台
-            # （原 print 会把订单明细整包打进 stdout，生产环境属于敏感信息泄漏）
-            logger.debug("order_create 请求体: %s", request_data)
-            response = await http_client.post(
-                "/orders/create",
-                json=request_data
+            result = await repo.create_order(
+                details=order_detail,
+                supplier_id=supplier_id,
+                project_id=project_id,
+                expected_delivery_date=expected_delivery_date,
+                status=status,
+                order_no=order_number,
+                created_by=created_by,
+                remark=remark,
             )
-            response.raise_for_status()
-            result = response.json()
-
-            if result.get("code") != 200:
-                # 业务失败要释放占位，否则同指纹请求要被挡到占位过期
-                store.release(idem_key)
-                return {
-                    "error": f"API error: code={result.get('code')}, message={result.get('message')}"
-                }
-
-            data = result.get("data", {})
-            # 仅在成功时登记：失败要允许重试，不能把失败结果也缓存成"首次响应"
-            # （put 内部会顺手删掉占位记录）
-            store.put(idem_key, fingerprint, data)
-            return data
-        except Exception as e:
-            # 异常同样释放占位，让调用方可以立即重试
-            store.release(idem_key)
-            return {"error": str(e)}
+            if not result.get("ok"):
+                # 校验失败：释放占位，允许修正后立即重试（失败结果绝不进缓存）
+                store.release(key)
+                return {"error": result.get("error", "下单失败")}
+            store.put(key, fingerprint, result)
+            return {**result, "idempotency_key": key}
+        except Exception as exc:
+            store.release(key)
+            logger.exception("order_create 执行异常")
+            return {"error": f"下单失败：{exc}"}
 
     @mcp.tool(name=f"{GROUP_NAME}_update")
     async def update_order(
         order_id: int,
         order_detail: Optional[List[dict]] = None,
-        order_number: Optional[str] = None,
-        total_amount: Optional[float] = None,
+        supplier_id: Optional[int] = None,
+        project_id: Optional[int] = None,
         status: Optional[int] = None,
-        order_time: Optional[str] = None,
         expected_delivery_date: Optional[str] = None,
         actual_delivery_date: Optional[str] = None,
-        created_by: Optional[int] = None,
         remark: Optional[str] = None,
         idempotency_key: Optional[str] = None,
         ctx: Context = None,
     ) -> dict:
-        """
-        更新采购订单（PUT /orders/update/{id}）。
+        """修改采购订单（最小变更：只落传进来的字段）。
 
-        orderDetail 为可选，传入则替换原有明细。
-        其他字段与创建订单格式一致。
-        幂等：相同字段集合在去重时间窗内重复提交只会真正执行一次。
+        状态流转：1 待审核 → 2 已审核 / 5 已取消；2 → 3 采购中 / 5；3 → 4 已入库；
+        4、5 为终态不可再改。已入库要改金额必须走退货重开，不能直接改单。
 
         Args:
-            order_id: 订单 ID（路径参数，必填）
-            order_detail: 订单明细列表（可选），每项需提供 partId, quantity, unitPrice
-            order_number: 订单编号
-            total_amount: 订单总金额
-            status: 订单状态(1-待审核, 2-已审核, 3-采购中, 4-已入库, 5-已取消)
-            order_time: 下单时间
-            expected_delivery_date: 预计交货日期
-            actual_delivery_date: 实际交货日期
-            created_by: 创建人 ID
+            order_id: 订单 ID（必填）
+            order_detail: 新明细数组；传入则整单替换原明细（每项含 materialId/quantity/unitPrice）
+            supplier_id: 更换供应商（换供方会改变价格，请同时更新明细单价）
+            project_id: 关联项目
+            status: 目标状态 1-5，必须符合上述流转规则
+            expected_delivery_date: 预计交货日期 yyyy-MM-dd
+            actual_delivery_date: 实际交货日期 yyyy-MM-dd
             remark: 备注
-            idempotency_key: 调用方提供的幂等键（可选）。不传则用订单ID+变更字段指纹自动推导
+            idempotency_key: 调用方幂等键（可选）
+
+        返回：{"ok": true, "order": {...}} 或 {"error": "..."}
         """
-        http_client = ctx.request_context.lifespan_context.get("http_client")
+        request_data: Dict[str, Any] = {
+            "orderId": order_id,           # 参与指纹：改 A 单和改 B 单不是同一笔请求
+            "supplierId": supplier_id,
+            "projectId": project_id,
+            "status": status,
+            "expectedDeliveryDate": expected_delivery_date,
+            "actualDeliveryDate": actual_delivery_date,
+            "remark": remark,
+            "details": [
+                {
+                    "materialId": d.get("materialId") or d.get("material_id"),
+                    "quantity": d.get("quantity"),
+                    "unitPrice": d.get("unitPrice") or d.get("unit_price"),
+                }
+                for d in (order_detail or [])
+            ] or None,
+        }
+        fingerprint = compute_fingerprint(request_data)
+        key = (idempotency_key or "").strip() or f"{GROUP_NAME}_update:{fingerprint}"
 
-        # 构建请求体（映射到 API 字段名，只包含非 None 字段）
-        request_data = {}
-        if order_number is not None:
-            request_data["orderNumber"] = order_number
-        if total_amount is not None:
-            request_data["totalAmount"] = total_amount
-        if status is not None:
-            request_data["status"] = status
-        if order_time is not None:
-            request_data["orderTime"] = order_time
-        if expected_delivery_date is not None:
-            request_data["expectedDeliveryDate"] = expected_delivery_date
-        if actual_delivery_date is not None:
-            request_data["actualDeliveryDate"] = actual_delivery_date
-        if created_by is not None:
-            request_data["createdBy"] = created_by
-        if remark is not None:
-            request_data["remark"] = remark
-        if order_detail is not None:
-            request_data["orderDetail"] = order_detail
-
-        request_data = _prepare_request(request_data)
-
-        # ---- 幂等前置检查（P0）----
-        # 更新的幂等键必须包含 order_id：否则"给 A 单改备注"和"给 B 单改备注"
-        # 内容相同会被误判为同一笔请求。
-        idem_key, fingerprint = _idempotency_key(
-            f"{GROUP_NAME}_update:{order_id}", request_data, idempotency_key
-        )
-        cached = _store().get(idem_key)
-        if cached is not None and cached.fingerprint == fingerprint:
-            logger.info("order_update 命中幂等记录，跳过重复更新: %s", idem_key)
-            if isinstance(cached.response, dict):
-                return {**cached.response, "idempotent_replay": True, "idempotency_key": idem_key}
-            return cached.response
-
-        # ---- 抢占执行权（并发去重）：抢不到说明同指纹更新正在处理中 ----
         store = _store()
-        if not store.claim(idem_key, fingerprint):
-            logger.info("order_update 同指纹请求正在处理中，拒绝重复更新: %s", idem_key)
-            return _claim_failed_response(store, idem_key, fingerprint)
+        cached = store.get(key)
+        if cached is not None and cached.fingerprint == fingerprint:
+            logger.info("order_update 命中幂等记录，跳过重复更新: %s", key)
+            return _replay_or_busy(store, key, fingerprint)
+        if not store.claim(key, fingerprint):
+            logger.info("order_update 同指纹请求正在处理中，拒绝重复更新: %s", key)
+            return _replay_or_busy(store, key, fingerprint)
 
         try:
-            logger.debug("order_update 请求体: %s", request_data)
-            response = await http_client.put(
-                f"/orders/update/{order_id}",
-                json=request_data
+            result = await repo.update_order(
+                order_id=order_id,
+                details=order_detail,
+                supplier_id=supplier_id,
+                project_id=project_id,
+                status=status,
+                expected_delivery_date=expected_delivery_date,
+                actual_delivery_date=actual_delivery_date,
+                remark=remark,
             )
-            response.raise_for_status()
-            result = response.json()
-
-            if result.get("code") != 200:
-                # 业务失败释放占位，允许修正后立即重试
-                store.release(idem_key)
-                return {
-                    "error": f"API error: code={result.get('code')}, message={result.get('message')}"
-                }
-
-            data = result.get("data", {})
-            store.put(idem_key, fingerprint, data)
-            return data
-        except Exception as e:
-            store.release(idem_key)
-            return {"error": str(e)}
+            if not result.get("ok"):
+                store.release(key)
+                return {"error": result.get("error", "改单失败")}
+            store.put(key, fingerprint, result)
+            return {**result, "idempotency_key": key}
+        except Exception as exc:
+            store.release(key)
+            logger.exception("order_update 执行异常")
+            return {"error": f"改单失败：{exc}"}
 
     @mcp.tool(name=f"{GROUP_NAME}_search_details")
     async def search_order_details(
-        part_name: Optional[str] = None,
+        material_name: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
+        supplier_id: Optional[int] = None,
+        project_code: Optional[str] = None,
+        limit: int = 50,
         ctx: Context = None,
     ) -> dict:
-        """
-        搜索采购订单明细。
+        """查询采购订单明细（按物料名称 / 下单日期区间 / 供应商 / 项目筛选）。
 
-        支持按零部件名称、日期范围筛选，所有参数均为可选。
-        返回的每条明细包含零部件详情（partDetail）及供应商信息（supplier）。
-
-        返回结构（P0 统一错误契约）：
-            成功 → {"ok": true, "count": n, "data": [ ...明细... ]}
-            失败 → {"ok": false, "count": 0, "error": "原因"}
-        这样模型能区分"查询结果为空"与"接口报错"，从而决定是继续分析还是换条件重试。
+        返回结构（统一错误契约，让模型能区分"查不到"与"查询失败"）：
+            成功 → {"ok": true, "count": n, "data": [...]}
+            失败 → {"ok": false, "count": 0, "data": [], "error": "原因"}
 
         Args:
-            part_name: 零部件名称（模糊查询），可选
-            start_date: 开始日期（yyyy-MM-dd 格式），可选
-            end_date: 结束日期（yyyy-MM-dd 格式），可选
+            material_name: 物料名称或规格（模糊匹配），如"理化板"、"1.0mm"
+            start_date: 下单日期起（yyyy-MM-dd，含当天）
+            end_date: 下单日期止（yyyy-MM-dd，含当天）
+            supplier_id: 供应商 ID
+            project_code: 项目编号，如 LHK-2026-001
+            limit: 返回条数上限，默认 50
         """
-        http_client = ctx.request_context.lifespan_context.get("http_client")
-
-        # 构建请求参数（过滤 None 值，映射到 API 字段名）
-        request_params = {}
-        if part_name is not None:
-            request_params["partName"] = part_name
-        if start_date is not None:
-            request_params["startDate"] = start_date
-        if end_date is not None:
-            request_params["endDate"] = end_date
-
         try:
-            response = await http_client.get(
-                "/orders/search-details",
-                params=request_params
+            return await repo.search_order_details(
+                material_name=material_name,
+                start_date=start_date,
+                end_date=end_date,
+                supplier_id=supplier_id,
+                project_code=project_code,
+                limit=limit,
             )
-            response.raise_for_status()
-            result = response.json()
-
-            if result.get("code") != 200:
-                return {
-                    "ok": False,
-                    "count": 0,
-                    "data": [],
-                    "error": f"API error: code={result.get('code')}, message={result.get('message')}",
-                }
-
-            data = result.get("data", []) or []
-            return {"ok": True, "count": len(data), "data": data}
-        except Exception as e:
-            return {"ok": False, "count": 0, "data": [], "error": f"订单明细查询失败: {e}"}
+        except Exception as exc:
+            logger.exception("订单明细查询失败")
+            return {"ok": False, "count": 0, "data": [], "error": f"订单明细查询失败: {exc}"}

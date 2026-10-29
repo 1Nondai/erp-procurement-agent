@@ -26,9 +26,9 @@ dependencies = [
     "fastapi>=0.141.0",
     "uvicorn>=0.52.0",
     "sse-starlette>=3.4.0",
-    # MCP Server
-    "mcp>=1.29.0",
-    "fastmcp>=3.2.0",
+    # MCP Server（fastmcp 4.x 需要 mcp>=2，与 langchain-mcp-adapters 冲突，故锁上限）
+    "mcp>=1.24.0,<2.0.0",
+    "fastmcp>=3.2.0,<4.0.0",
     # 存储 / 沙箱 / 模型服务
     "psycopg[binary,pool]>=3.3.0",
     "opensandbox>=0.1.7",
