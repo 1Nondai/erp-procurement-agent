@@ -27,17 +27,17 @@ from mcp_server.idempotency import (  # noqa: E402
 class TestComputeFingerprint(unittest.TestCase):
 
     def test_field_order_does_not_matter(self):
-        a = compute_fingerprint({"supplierId": 1, "partId": 2, "quantity": 10})
-        b = compute_fingerprint({"quantity": 10, "partId": 2, "supplierId": 1})
+        a = compute_fingerprint({"supplierId": 1, "materialId": 2, "quantity": 10})
+        b = compute_fingerprint({"quantity": 10, "materialId": 2, "supplierId": 1})
         self.assertEqual(a, b)
 
     def test_volatile_fields_are_ignored(self):
-        payload = {"partId": 2, "quantity": 10}
+        payload = {"materialId": 2, "quantity": 10}
         with_noise = {**payload, "orderNumber": "PO-20260513-0001", "orderTime": "2026-05-13T06:22:00"}
         self.assertEqual(compute_fingerprint(payload), compute_fingerprint(with_noise))
 
     def test_business_changes_change_fingerprint(self):
-        base = {"partId": 2, "quantity": 10}
+        base = {"materialId": 2, "quantity": 10}
         self.assertNotEqual(compute_fingerprint(base), compute_fingerprint({**base, "quantity": 11}))
 
     def test_decimal_and_float_are_normalized(self):

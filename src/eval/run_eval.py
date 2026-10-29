@@ -11,7 +11,7 @@ ERP 采购智能助手 评测脚本（离线可跑，不需要启动 Agent / 沙
        （尚未实现 --with-agent 在线模式，需要时先启动 start_web.py 全栈）。
 
 运行：
-    cd QingchiERP
+    cd <项目根目录>
     python src/eval/run_eval.py                    # 检索层 + 答案层
     python src/eval/run_eval.py --top-k 5          # 自定义检索条数
     python src/eval/run_eval.py --case rag-004     # 只跑单条用例

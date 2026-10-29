@@ -18,7 +18,7 @@ RAG 知识库模块（检索增强生成）。
     from rag.knowledge_base import KnowledgeBase
     kb = KnowledgeBase()               # 加载/创建知识库
     await kb.ensure_built()            # 首次构建默认知识语料
-    results = await kb.search("火花塞")  # 向量检索
+    results = await kb.search("理化板台面")  # 向量检索
 """
 
 from __future__ import annotations
@@ -241,7 +241,7 @@ class KnowledgeBase:
     生命周期：
         kb = KnowledgeBase()
         await kb.ensure_built()     # 幂等：空库时用默认语料构建一次
-        results = await kb.search("火花塞选型")
+        results = await kb.search("台面选型")
 
     线程模型：
         embed() 走网络 IO（在 asyncio 的 executor 里跑同步 SDK），
@@ -293,7 +293,7 @@ class KnowledgeBase:
         """检索与查询最相关的知识片段。
 
         Args:
-            query: 自然语言查询（如"火花塞怎么选"）。
+            query: 自然语言查询（如"理化板和环氧板怎么选"）。
             top_k: 返回条数，默认取 env RAG_TOP_K。
 
         Returns:

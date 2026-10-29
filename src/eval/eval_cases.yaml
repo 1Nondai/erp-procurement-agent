@@ -1,5 +1,5 @@
 # ============================================================
-# ERP 采购智能助手 评测集
+# 利环康实验设备 · ERP 采购智能助手 评测集
 # ============================================================
 # 结构：每条用例包含 query（用户问题）、expected（期望要点）、
 #       expected_sources（期望命中的知识来源）、tags（能力分类）。
@@ -11,92 +11,99 @@
 #                     离线评测脚本跳过此类用例并标注 skipped
 #
 # 维护约定：
-#   1. 每条 expected 只写"可验证的关键事实"，不写开放式内容；
-#   2. 新增知识后同步补充对应用例（保证评测集覆盖率跟上知识库）；
-#   3. 不要为了"让模型通过"修改 expected——修的是知识或提示词。
+#   1. expected 只写"能在知识片段原文里找到的锚点"（数字/标准号/专有名词），
+#      不写"模型应该会提到"的推理结论——否则答案层失败无法区分是检索错
+#      还是生成错；
+#   2. expected_sources 必须是 knowledge_docs.py 里真实存在的 source 字符串
+#      （逐字一致，含版本号与空格），改名时两边同步；
+#   3. 新增知识后同步补充对应用例（保证评测集覆盖率跟上知识库）；
+#   4. 不要为了"让模型通过"修改 expected——修的是知识或提示词。
 # ============================================================
 
 cases:
-  # ---------------- RAG 检索质量 ----------------
+  # ---------------- RAG 检索质量 + 领域问答（正例） ----------------
   - id: rag-001
-    query: "采购订单有哪些状态，是怎么流转的？"
-    expected: "1-待审核, 2-已审核, 3-采购中, 4-已入库, 5-已取消"
-    expected_sources: ["采购制度手册"]
+    query: "一张 8 万元的采购订单需要谁审批？"
+    expected: "分管副总"
+    expected_sources: ["利环康采购管理制度 v3.2"]
     tags: [rag_retrieval, domain_answer]
 
   - id: rag-002
-    query: "比价采购有什么原则？至少要几家报价？"
+    query: "询价比价至少要几家有效报价？哪些情况可以不走三家询价？"
     expected: "三家"
-    expected_sources: ["采购制度手册"]
+    expected_sources: ["利环康采购管理制度 v3.2"]
     tags: [rag_retrieval, domain_answer]
 
   - id: rag-003
-    query: "下单之前需要核验什么？"
-    expected: "供应商资质"
-    expected_sources: ["采购制度手册"]
+    query: "痕量消解实验的台面该选环氧树脂板还是理化板？环氧板能耐多高温度？"
+    expected: "350"
+    expected_sources: ["台面材料选型技术指引"]
     tags: [rag_retrieval, domain_answer]
 
   - id: rag-004
-    query: "火花塞的热值怎么选？铱金和镍合金有什么区别？"
-    expected: "热值"
-    expected_sources: ["零部件知识库"]
+    query: "进口环氧树脂板为什么交期要 45 天？备料上怎么应对？"
+    expected: "45"
+    expected_sources: ["进口台面备料作业指引"]
     tags: [rag_retrieval, domain_answer]
 
   - id: rag-005
-    query: "摩托车机油要看什么认证？"
-    expected: "JASO"
-    expected_sources: ["零部件知识库"]
+    query: "台面在实验台总成本里占多大比例？"
+    expected: "40"
+    expected_sources: ["实验台成本结构与报价指引"]
     tags: [rag_retrieval, domain_answer]
 
   - id: rag-006
-    query: "安全库存怎么计算？"
-    expected: "最大日消耗量"
-    expected_sources: ["库存管理规范"]
+    query: "实验台柜体什么时候必须用 304 不锈钢？普通冷轧板 SPCC 的适用边界在哪？"
+    expected: "304"
+    expected_sources: ["GB 24820-2009 实验室家具通用技术条件"]
     tags: [rag_retrieval, domain_answer]
 
   - id: rag-007
-    query: "供应商评估有哪几个维度？"
-    expected: "QSDC"
-    expected_sources: ["供应商管理办法"]
+    query: "三节静音滑轨的额定承重是多少？超重了怎么处理？"
+    expected: "35kg"
+    expected_sources: ["五金配件选型手册"]
     tags: [rag_retrieval, domain_answer]
 
   - id: rag-008
-    query: "轮胎规格 120/70-ZR17 是什么意思？"
-    expected: "轮辋直径 17"
-    expected_sources: ["零部件知识库"]
+    query: "水槽排水为什么必须装存水弯？水封要多深？"
+    expected: "50mm"
+    expected_sources: ["水暖配件配置标准"]
     tags: [rag_retrieval, domain_answer]
 
   - id: rag-009
-    query: "呆滞物料怎么处理？库龄多久算呆滞？"
-    expected: "180"
-    expected_sources: ["库存管理规范"]
+    query: "实验台插座的漏电保护动作电流是多少？"
+    expected: "30mA"
+    expected_sources: ["电气配件配置标准"]
     tags: [rag_retrieval, domain_answer]
 
   - id: rag-010
-    query: "库存 ABC 分类是什么策略？"
-    expected: "A 类"
-    expected_sources: ["库存管理规范"]
+    query: "供应商信用等级 A/B/C/D 分别代表什么？D 级还能下单吗？"
+    expected: "黑名单"
+    expected_sources: ["供应商准入与评估办法"]
     tags: [rag_retrieval, domain_answer]
 
-  # ---------------- 负例：知识库没有的内容（检索不应硬造） ----------------
-  - id: rag-neg-001
-    query: "公司食堂本周菜单是什么？"
+  # ---------------- 负例：知识库没有的内容（不应硬造） ----------------
+  # 机车类问题在实验设备知识库里不存在，正确行为是明确回答"知识库无相关
+  # 信息/需人工确认"，而不是编出一个间隙值。检索层只校验链路不崩溃；
+  # 答案层用 expected="" 表示不做要点匹配，人工/LLM judge 另评。
+  - id: rag-011
+    query: "火花塞的电极间隙标准是多少？"
     expected: ""
     expected_sources: []
     tags: [rag_retrieval]
-    note: "负例：知识库无此内容，top1 相关度应显著低于正例"
+    note: "负例：知识库无此内容（旧行业话题），应拒绝作答或声明无相关信息，不得编造间隙数值"
 
   # ---------------- Agent 路由（需完整环境，离线评测跳过） ----------------
   - id: route-001
-    query: "帮我分析一下火花塞供应商的价格对比"
+    query: "帮我查一下理化板台面的报价，对比三家供应商"
     expected: "procurement-analyst"
     expected_sources: []
     tags: [agent_routing]
-    note: "应委派给采购分析子 Agent"
+    note: "分析与比价类诉求，应委派给采购分析子 Agent"
 
   - id: route-002
-    query: "创建一个采购订单，物料 12 个火花塞"
+    query: "把 PO20260815004 的状态改成已审核"
     expected: "procurement-order"
     expected_sources: []
     tags: [agent_routing]
-    note: "应委派给采购订单子 Agent，且触发 HITL 审批"
+    note: "写操作落在订单域，应委派给采购订单子 Agent，且触发 HITL 审批"

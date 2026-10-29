@@ -15,7 +15,7 @@ import shutil
 
 import numpy as np
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from rag.knowledge_base import _VectorStore  # noqa: E402
 from rag.knowledge_docs import DEFAULT_KNOWLEDGE_DOCS  # noqa: E402
@@ -44,12 +44,15 @@ def make_store(tmpdir: pathlib.Path) -> _VectorStore:
     store = _VectorStore.__new__(_VectorStore)
     store.path = tmpdir / "kb.jsonl"
     store._lock = threading.Lock()
-    store._texts = ["采购订单状态流转", "火花塞选型要点", "供应商QSDC评估"]
-    store._metas = [{"source": "采购制度"}, {"source": "零部件知识"}, {"source": "供应商管理"}]
+    store._texts = ["采购订单状态流转", "环氧树脂板交期", "供应商QSDC评估"]
+    store._metas = [{"source": "采购制度"}, {"source": "物料知识"}, {"source": "供应商管理"}]
     # 三条互相正交的基向量：保证相似度只由方向决定
     store._vectors = np.asarray(
         [[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=np.float32
     )
+    # __init__ 被跳过，归一化缓存也要手工建好——search() 只读 _norm_vectors，
+    # 不补这一步会 AttributeError（原先靠每次重算全库范数，重构后改为缓存）
+    store._norm_vectors = _VectorStore._build_norm_vectors(store._vectors)
     return store
 
 
@@ -122,11 +125,26 @@ def test_search_add_and_persist():
         cleanup(d)
 
 
+# 语料里不应再出现的旧行业词（机车零部件），防止回潮
+_LEGACY_TERMS = ("火花塞", "摩托车", "机车", "轮胎", "JASO", "刹车片")
+
+
 def test_docs_shape():
-    """默认语料每条必须含 content 与 source 字段。"""
+    """默认语料每条必须含 content 与 source 字段，且符合语料维护约定。
+
+    这里额外守住三条约定，否则检索质量会在不知不觉中退化：
+        1. 每条 180-320 字（见 knowledge_docs.py 模块 docstring），
+           过短上下文不足、过长稀释向量语义；
+        2. source 非空——溯源是 RAG 结果可采信的前提；
+        3. 不得残留旧行业（机车零部件）词条，防止换行业时漏改。
+    """
     for doc in DEFAULT_KNOWLEDGE_DOCS:
         assert "content" in doc and doc["content"].strip(), f"缺 content: {doc}"
-        assert "source" in doc, f"缺 source: {doc}"
+        assert "source" in doc and doc["source"].strip(), f"缺 source: {doc}"
+        n = len(doc["content"])
+        assert 180 <= n <= 320, f"片段长度 {n} 字超出 180-320 约定: {doc['source']}"
+        for term in _LEGACY_TERMS:
+            assert term not in doc["content"], f"残留旧行业词「{term}」: {doc['source']}"
     print(f"PASS: 默认语料结构合法（{len(DEFAULT_KNOWLEDGE_DOCS)} 条）")
 
 
