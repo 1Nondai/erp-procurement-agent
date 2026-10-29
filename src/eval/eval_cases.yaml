@@ -1,0 +1,102 @@
+# ============================================================
+# ERP 采购智能助手 评测集
+# ============================================================
+# 结构：每条用例包含 query（用户问题）、expected（期望要点）、
+#       expected_sources（期望命中的知识来源）、tags（能力分类）。
+#
+# 评测维度（tags 字段）：
+#   - rag_retrieval : RAG 检索质量（期望来源是否命中 top-k）
+#   - domain_answer : 领域知识问答（答案是否包含期望要点）
+#   - agent_routing : Agent 路由（委派是否正确）——需要完整 Agent 环境，
+#                     离线评测脚本跳过此类用例并标注 skipped
+#
+# 维护约定：
+#   1. 每条 expected 只写"可验证的关键事实"，不写开放式内容；
+#   2. 新增知识后同步补充对应用例（保证评测集覆盖率跟上知识库）；
+#   3. 不要为了"让模型通过"修改 expected——修的是知识或提示词。
+# ============================================================
+
+cases:
+  # ---------------- RAG 检索质量 ----------------
+  - id: rag-001
+    query: "采购订单有哪些状态，是怎么流转的？"
+    expected: "1-待审核, 2-已审核, 3-采购中, 4-已入库, 5-已取消"
+    expected_sources: ["采购制度手册"]
+    tags: [rag_retrieval, domain_answer]
+
+  - id: rag-002
+    query: "比价采购有什么原则？至少要几家报价？"
+    expected: "三家"
+    expected_sources: ["采购制度手册"]
+    tags: [rag_retrieval, domain_answer]
+
+  - id: rag-003
+    query: "下单之前需要核验什么？"
+    expected: "供应商资质"
+    expected_sources: ["采购制度手册"]
+    tags: [rag_retrieval, domain_answer]
+
+  - id: rag-004
+    query: "火花塞的热值怎么选？铱金和镍合金有什么区别？"
+    expected: "热值"
+    expected_sources: ["零部件知识库"]
+    tags: [rag_retrieval, domain_answer]
+
+  - id: rag-005
+    query: "摩托车机油要看什么认证？"
+    expected: "JASO"
+    expected_sources: ["零部件知识库"]
+    tags: [rag_retrieval, domain_answer]
+
+  - id: rag-006
+    query: "安全库存怎么计算？"
+    expected: "最大日消耗量"
+    expected_sources: ["库存管理规范"]
+    tags: [rag_retrieval, domain_answer]
+
+  - id: rag-007
+    query: "供应商评估有哪几个维度？"
+    expected: "QSDC"
+    expected_sources: ["供应商管理办法"]
+    tags: [rag_retrieval, domain_answer]
+
+  - id: rag-008
+    query: "轮胎规格 120/70-ZR17 是什么意思？"
+    expected: "轮辋直径 17"
+    expected_sources: ["零部件知识库"]
+    tags: [rag_retrieval, domain_answer]
+
+  - id: rag-009
+    query: "呆滞物料怎么处理？库龄多久算呆滞？"
+    expected: "180"
+    expected_sources: ["库存管理规范"]
+    tags: [rag_retrieval, domain_answer]
+
+  - id: rag-010
+    query: "库存 ABC 分类是什么策略？"
+    expected: "A 类"
+    expected_sources: ["库存管理规范"]
+    tags: [rag_retrieval, domain_answer]
+
+  # ---------------- 负例：知识库没有的内容（检索不应硬造） ----------------
+  - id: rag-neg-001
+    query: "公司食堂本周菜单是什么？"
+    expected: ""
+    expected_sources: []
+    tags: [rag_retrieval]
+    note: "负例：知识库无此内容，top1 相关度应显著低于正例"
+
+  # ---------------- Agent 路由（需完整环境，离线评测跳过） ----------------
+  - id: route-001
+    query: "帮我分析一下火花塞供应商的价格对比"
+    expected: "procurement-analyst"
+    expected_sources: []
+    tags: [agent_routing]
+    note: "应委派给采购分析子 Agent"
+
+  - id: route-002
+    query: "创建一个采购订单，物料 12 个火花塞"
+    expected: "procurement-order"
+    expected_sources: []
+    tags: [agent_routing]
+    note: "应委派给采购订单子 Agent，且触发 HITL 审批"
