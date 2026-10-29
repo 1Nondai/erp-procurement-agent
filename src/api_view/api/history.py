@@ -274,7 +274,7 @@ async def get_sessions(
         sessions = []
         for thread_id in all_thread_ids:
             try:
-                messages = await agent_loader.get_current_messages(thread_id)
+                messages = await agent_loader.get_current_messages(thread_id, user_id=identity.user_id)
 
                 if messages:
                     first_user_msg = next(
@@ -344,7 +344,7 @@ async def get_session_messages(
 
         if not serialized:
             # 回退到 checkpoint（兼容旧数据，不含子代理消息）
-            messages = await agent_loader.get_current_messages(thread_id)
+            messages = await agent_loader.get_current_messages(thread_id, user_id=identity.user_id)
             serialized = serialize_messages_from_checkpoint(messages)
 
         message_list = []

@@ -34,10 +34,10 @@ CORS_ALLOWED_ORIGINS = [
 # ============================================================
 # 路径常量（沙箱内的技能/记忆/AGENTS.md 位置）统一由 agent.config 提供，
 # 这里不再保留已失效的副本，避免两处漂移。
-API_TITLE = "利环康实验设备 · ERP 采购智能助手 API"
+API_TITLE = "明远实验装备 · ERP 采购智能助手 API"
 API_VERSION = "2.0.0"
 API_DESCRIPTION = (
-    "利环康实验设备 ERP 采购智能助手：DeepAgents 多 Agent 编排 + MCP 采购工具 + RAG 知识检索 + "
+    "明远实验装备 ERP 采购智能助手：DeepAgents 多 Agent 编排 + MCP 采购工具 + RAG 知识检索 + "
     "Human-in-the-Loop 订单审批。业务数据落 PostgreSQL 的 erp schema，"
     "前端通过 /api/chat/stream 以 SSE 接收 token、工具调用与中断事件。"
 )

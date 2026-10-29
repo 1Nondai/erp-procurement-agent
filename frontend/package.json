@@ -1,7 +1,7 @@
 {
   "name": "deepagent-chat-frontend",
   "version": "1.0.0",
-  "description": "利环康实验设备 · 采购智能助手 — 基于 DeepAgents + LangGraph + MCP 的实验设备材料采购 Agent 前端（Vue 3）",
+  "description": "明远实验装备 · 采购智能助手 — 基于 DeepAgents + LangGraph + MCP 的实验设备材料采购 Agent 前端（Vue 3）",
   "type": "module",
   "scripts": {
     "dev": "vite",

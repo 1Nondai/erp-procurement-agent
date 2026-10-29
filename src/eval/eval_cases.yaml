@@ -1,5 +1,5 @@
 # ============================================================
-# 利环康实验设备 · ERP 采购智能助手 评测集
+# 明远实验装备 · ERP 采购智能助手 评测集
 # ============================================================
 # 结构：每条用例包含 query（用户问题）、expected（期望要点）、
 #       expected_sources（期望命中的知识来源）、tags（能力分类）。
@@ -25,13 +25,13 @@ cases:
   - id: rag-001
     query: "一张 8 万元的采购订单需要谁审批？"
     expected: "分管副总"
-    expected_sources: ["利环康采购管理制度 v3.2"]
+    expected_sources: ["明远采购管理制度 v3.2"]
     tags: [rag_retrieval, domain_answer]
 
   - id: rag-002
     query: "询价比价至少要几家有效报价？哪些情况可以不走三家询价？"
     expected: "三家"
-    expected_sources: ["利环康采购管理制度 v3.2"]
+    expected_sources: ["明远采购管理制度 v3.2"]
     tags: [rag_retrieval, domain_answer]
 
   - id: rag-003

@@ -25,6 +25,7 @@ if str(SRC_DIR) not in sys.path:
 
 # 导入配置（必须在 sys.path 调整之后）
 from api_view.web_config import POSTGRES_URI  # noqa: E402
+from agent.backends import sandbox_manager  # noqa: E402
 
 # 会话归属的兜底用户：历史数据（user_id 为 NULL 的行）按此用户处理，
 # 这样升级到多用户后，旧的单人会话不会"凭空消失"或对所有人可见。
@@ -150,8 +151,13 @@ class AgentLoader:
     _instance: Optional['AgentLoader'] = None
     # 是否已初始化
     _initialized: bool = False
-    # Agent 实例
+    # 最近一次构建的 agent graph（所有 graph 共享同一个 checkpointer）
     _agent = None
+    # per-user agent graph 缓存：user_id → 编译后的 StateGraph。
+    # 为什么要缓存：create_main_agent 要做 MCP 连接 + 子 Agent 解析 + 编译，
+    # 每请求重建既慢（1~3s）又浪费；同一用户的沙箱是稳定的（代理换芯），
+    # 所以 graph 也可以复用。沙箱挂了由中间件就地换芯，graph 无需重建。
+    _agents: dict = {}
 
     def __new__(cls):
         """确保单例模式"""
@@ -169,25 +175,62 @@ class AgentLoader:
         Returns:
             Agent 实例
         """
-        if self._initialized and self._agent is not None:
+        if self._initialized:
             return self._agent
 
         print("[AgentLoader] 开始初始化...")
 
         try:
-            # 确保展示消息表存在（进程首次使用连接池时建表，幂等且只执行一次）
+            # 1. 确保展示消息表存在（进程首次使用连接池时建表，幂等且只执行一次）
             await get_pg_pool()
 
-            # 通过 main_agent 的懒加载方法获取 Agent（内部已集成 PostgresSaver checkpointer）
-            from agent.main_agent import get_agent_async
-            self._agent = await get_agent_async()
+            # 2. 沙箱管理器：注册表（PostgreSQL）+ 预热一个沙箱。
+            #    预热失败不会抛错（沙箱服务没起时服务仍应能启动，只是聊天不可用）。
+            await sandbox_manager.initialize(POSTGRES_URI)
+            await sandbox_manager.pre_warm()
 
             self._initialized = True
-            print("[AgentLoader] 初始化完成")
+            print("[AgentLoader] 初始化完成（沙箱预热就绪，Agent 按用户懒加载）")
         except Exception:
             raise
 
         return self._agent
+
+    async def get_agent_for_user(self, user_id: str):
+        """取得该用户的 agent graph（首次调用构建并缓存）。
+
+        链路：sandbox_manager.ensure_sandbox_for_user() → create_main_agent(代理)
+        同一用户的多个 thread 共享同一个沙箱，因而也共享同一个 graph。
+        """
+        if not self._initialized:
+            await self.initialize()
+
+        cached = self._agents.get(user_id)
+        if cached is not None:
+            self._agent = cached
+            return cached
+
+        from agent.main_agent import create_main_agent
+
+        print(f"[AgentLoader] 为用户 {user_id} 构建 agent graph...")
+        sandbox_backend = await sandbox_manager.ensure_sandbox_for_user(user_id)
+        graph = await create_main_agent(sandbox_backend=sandbox_backend, user_id=user_id)
+        self._agents[user_id] = graph
+        self._agent = graph
+        print(f"[AgentLoader] 用户 {user_id} 的 agent graph 已就绪（沙箱 {sandbox_backend.id}）")
+        return graph
+
+    async def cleanup_user(self, user_id: str) -> None:
+        """销毁某用户的沙箱与 graph（删号/登出时调用）。"""
+        self._agents.pop(user_id, None)
+        await sandbox_manager.cleanup_user(user_id)
+
+    async def shutdown(self) -> None:
+        """应用退出：清理所有沙箱 + 关闭注册表连接。"""
+        await sandbox_manager.shutdown()
+        self._agents.clear()
+        self._agent = None
+        self._initialized = False
 
     @staticmethod
     def _ensure_tables():
@@ -196,18 +239,29 @@ class AgentLoader:
 
     @property
     def agent(self):
-        """
-        获取 Agent 实例
+        """最近一次构建的 agent graph（同步属性，供已有代码兼容使用）。
 
-        Returns:
-            Agent 实例
-
-        Raises:
-            RuntimeError: 如果 Agent 未初始化
+        新代码请用 `await get_agent_for_user(user_id)`：
+        本属性在"还没有任何请求进来"时是 None，直接调用会抛 RuntimeError。
         """
         if self._agent is None:
-            raise RuntimeError("Agent 未初始化，请先调用 initialize() 方法")
+            raise RuntimeError(
+                "还没有为任何用户构建 agent graph；"
+                "请用 await agent_loader.get_agent_for_user(user_id)"
+            )
         return self._agent
+
+    async def _state_graph(self, user_id: Optional[str] = None):
+        """取一个可用于"只读状态"的 graph。
+
+        为什么要单独一层：读会话历史不需要沙箱能力，但 LangGraph 的
+        aget_state / aget_state_history 挂在编译后的 graph 上。
+        所有 graph 共享同一个 checkpointer，因此拿任意一个 graph 都能读任意
+        thread —— 有缓存就用缓存，没有才按用户建一次。
+        """
+        if self._agent is not None:
+            return self._agent
+        return await self.get_agent_for_user(user_id or DEFAULT_USER_ID)
 
     def create_config(
         self,
@@ -250,7 +304,8 @@ class AgentLoader:
     async def get_state_history(
         self,
         thread_id: str,
-        limit: int = 50
+        limit: int = 50,
+        user_id: Optional[str] = None,
     ) -> List[Any]:
         """
         获取会话的历史状态
@@ -263,17 +318,20 @@ class AgentLoader:
             List[StateSnapshot]: 状态快照列表
         """
         config = self.create_config(thread_id)
+        graph = await self._state_graph(user_id)
         states = []
 
         # 使用 agent.get_state_history 获取历史
-        async for state in self.agent.aget_state_history(config):
+        async for state in graph.aget_state_history(config):
             states.append(state)
             if len(states) >= limit:
                 break
 
         return states
 
-    async def get_current_messages(self, thread_id: str) -> List[Dict[str, Any]]:
+    async def get_current_messages(
+        self, thread_id: str, user_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """
         获取当前会话的消息列表
 
@@ -286,7 +344,8 @@ class AgentLoader:
         config = self.create_config(thread_id)
 
         try:
-            state = await self.agent.aget_state(config)
+            graph = await self._state_graph(user_id)
+            state = await graph.aget_state(config)
             if state and state.values:
                 return state.values.get("messages", [])
         except Exception as e:

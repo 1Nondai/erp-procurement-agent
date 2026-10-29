@@ -133,7 +133,7 @@ def shutdown(*_args) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="利环康实验设备 · 采购智能助手 — 本地启动器")
+    parser = argparse.ArgumentParser(description="明远实验装备 · 采购智能助手 — 本地启动器")
     parser.add_argument("--backend-only", action="store_true", help="只启动后端")
     parser.add_argument("--frontend-only", action="store_true", help="只启动前端")
     parser.add_argument("--reload", action="store_true", help="后端启用热重载（会重复冷启动 Agent）")
@@ -150,7 +150,7 @@ def main() -> int:
             pass  # 某些平台/线程上下文不支持，忽略即可
 
     print("=" * 62)
-    print("  利环康实验设备 · 采购智能助手 — 本地开发启动器")
+    print("  明远实验装备 · 采购智能助手 — 本地开发启动器")
     print("=" * 62)
 
     try:

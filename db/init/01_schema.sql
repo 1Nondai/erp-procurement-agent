@@ -1,5 +1,5 @@
 -- ============================================================
--- 利环康实验设备 · 采购业务库 schema
+-- 明远实验装备 · 采购业务库 schema
 -- ------------------------------------------------------------
 -- 设计要点：
 --   1. 业务数据全部落 PostgreSQL，独立 schema `erp`，与 LangGraph 的
@@ -13,7 +13,7 @@
 -- ============================================================
 
 CREATE SCHEMA IF NOT EXISTS erp;
-COMMENT ON SCHEMA erp IS '利环康实验设备 · ERP 采购业务库';
+COMMENT ON SCHEMA erp IS '明远实验装备 · ERP 采购业务库';
 
 -- ------------------------------------------------------------
 -- 供应商
@@ -204,3 +204,25 @@ SELECT
 FROM erp.material m
 WHERE m.status = 1 AND m.current_stock < m.safety_stock
 ORDER BY (m.safety_stock - m.current_stock) DESC;
+
+
+-- ============================================================
+-- 运维 schema：沙箱注册表
+-- ------------------------------------------------------------
+-- user_id → sandbox_id 的绑定关系。注意它**不是沙箱的真相**，只是索引：
+-- 读到的 id 连不上（容器被清、机器重启）时会走"重建"路径并覆盖绑定，
+-- 宁可多建一个沙箱，也不让用户卡住。
+-- sandbox_registry.init() 会以 IF NOT EXISTS 幂等地建同样的表，
+-- 这里保留一份是为了让"库里有哪些表"一眼可见。
+-- ============================================================
+CREATE SCHEMA IF NOT EXISTS ops;
+
+CREATE TABLE IF NOT EXISTS ops.sandbox_registry (
+    user_id    TEXT PRIMARY KEY,
+    sandbox_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sandbox_registry_sandbox
+    ON ops.sandbox_registry (sandbox_id);

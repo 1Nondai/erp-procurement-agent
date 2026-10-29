@@ -43,7 +43,7 @@ async def lifespan(server: FastMCP):
 mcp = FastMCP(
     name="lihuankang-erp-mcp-server",
     instructions=(
-        "利环康实验设备 · ERP 采购工具集。按业务分组提供供应商、物料比价、"
+        "明远实验装备 · ERP 采购工具集。按业务分组提供供应商、物料比价、"
         "采购订单与库存预警能力，数据源为 PostgreSQL 的 erp schema。"
     ),
     version="2.0.0",

@@ -38,6 +38,7 @@ from langchain.agents.middleware import (
 )
 from langchain_core.runnables import RunnableConfig
 
+from agent.backends.sandbox_proxy import SandboxBackendProxy
 from agent.backends.sandbox_setup import setup_sandbox
 
 from agent.config import (
@@ -59,7 +60,10 @@ from agent.middleware_config import (
 )
 from agent.middlewares.context_injection import ContextInjectionMiddleware
 from agent.middlewares.memory_update import MemoryUpdateMiddleware
+from agent.middlewares.sandbox_breaker import SandboxCircuitBreakerMiddleware
+from agent.middlewares.sandbox_health import SandboxHealthMiddleware
 from agent.middlewares.skills_sync import SkillsSyncMiddleware
+from agent.middlewares.tool_error import ToolErrorMiddleware
 from agent.middlewares.tools_summarization import build_summarization_middleware
 from agent.middlewares.user_skills_restore import UserSkillsRestoreMiddleware
 from agent.schema import ProcurementContext
@@ -97,6 +101,8 @@ async def create_main_agent(
     config: Optional[RunnableConfig] = None,
     *,
     sandbox_id: Optional[str] = None,
+    sandbox_backend: Optional[SandboxBackendProxy] = None,
+    user_id: Optional[str] = None,
 ):
     """
     创建 ERP 采购智能助手的 async graph factory。
@@ -109,7 +115,11 @@ async def create_main_agent(
 
     Args:
         config: LangGraph RunnableConfig，由 langgraph 平台注入。
-        sandbox_id: 可选，复用已有沙箱 ID。为 None 时创建新沙箱。
+        sandbox_id: 可选，复用已有沙箱 ID（脚本/CLI 场景）。
+        sandbox_backend: 可选，由 sandbox_manager 分配好的 per-user 沙箱代理。
+            传入时不再自行创建沙箱 —— Web 端走这条路径，同一用户的多条会话
+            因此共享同一个沙箱文件系统（技能、分析中间产物都在里面）。
+        user_id: 可选，仅用于日志与健康检查中间件定位沙箱。
 
     Returns:
         编译后的 LangGraph StateGraph，可调用 .ainvoke() / .astream()。
@@ -117,12 +127,19 @@ async def create_main_agent(
     logger.info("=== 开始创建 ERP 采购智能助手 ===")
 
     # ---- Phase 1: 沙箱配置 ----
+    # 两条路径：
+    #   a) Web 端传入 per-user 代理（sandbox_backend）—— 沙箱由 sandbox_manager
+    #      统一管理，同一用户复用同一个沙箱，挂了能被健康检查自动换芯；
+    #   b) 脚本/CLI 自建 —— 没有 manager 时的兜底，行为与原来一致。
     logger.info("Phase 1/10: 配置沙箱...")
-    try:
-        sandbox_backend = setup_sandbox(SANDBOX_CONFIG, sandbox_id=sandbox_id)
-    except Exception:
-        logger.exception("沙箱配置失败")
-        raise RuntimeError("沙箱配置失败，无法创建 Agent")
+    if sandbox_backend is None:
+        try:
+            sandbox_backend = SandboxBackendProxy(
+                setup_sandbox(SANDBOX_CONFIG, sandbox_id=sandbox_id)
+            )
+        except Exception:
+            logger.exception("沙箱配置失败")
+            raise RuntimeError("沙箱配置失败，无法创建 Agent")
 
     # ---- Phase 1.4: 上传 AGENTS.md 到沙箱 ----
     # AGENTS.md 存储到 OpenSandbox 后端 /AGENTS.md，不走 StoreBackend。
@@ -231,9 +248,29 @@ async def create_main_agent(
         UserSkillsRestoreMiddleware(sandbox_backend, SKILLS_STORE_NAMESPACE),
         build_summarization_middleware(backend, SUMMARY_MODEL),
         MemoryUpdateMiddleware(model=SUMMARY_MODEL),
+    ]
+
+    # 沙箱自愈三件套（只在 manager 托管沙箱时启用）：
+    #   SandboxHealthMiddleware      —— 每步开始前探活，挂了就地重建（换芯不换壳）
+    #   SandboxCircuitBreakerMiddleware —— 连续失败超阈值熔断，避免"重建→再挂"死循环
+    #   ToolErrorMiddleware          —— 单个工具异常转成 ToolMessage，别炸掉整轮
+    # 顺序有意为之：健康检查在最前（先保证沙箱可用），熔断在其后（判断是否该放弃）。
+    if user_id:
+        main_middleware.extend([
+            SandboxHealthMiddleware(
+                sandbox_backend=sandbox_backend,
+                user_id=user_id,
+                agents_md_content=ag_md_content.encode("utf-8"),
+            ),
+            SandboxCircuitBreakerMiddleware(
+                threshold=int(os.environ.get("SANDBOX_BREAKER_THRESHOLD", "2"))
+            ),
+        ])
+    main_middleware.extend([
+        ToolErrorMiddleware(),
         ModelCallLimitMiddleware(run_limit=50),
         ToolCallLimitMiddleware(run_limit=200),
-    ]
+    ])
 
     # ---- Phase 9: create_deep_agent ----
     logger.info("Phase 9/10: 创建 Deep Agent...")

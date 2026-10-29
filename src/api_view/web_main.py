@@ -53,6 +53,13 @@ async def lifespan(app: FastAPI):
     # ============================================================
     logger.info("正在关闭 %s ...", API_TITLE)
 
+    # 清理所有沙箱（含预热池）并关闭沙箱注册表连接。
+    # 不清理的后果：docker 里持续残留容器，几轮重启后把机器内存吃光。
+    try:
+        await agent_loader.shutdown()
+    except Exception:  # noqa: BLE001
+        logger.warning("关闭时清理沙箱失败", exc_info=True)
+
 
 # 创建 FastAPI 应用
 app = FastAPI(

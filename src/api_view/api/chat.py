@@ -255,7 +255,9 @@ class ResumeRequest(BaseModel):
 # 流式对话核心逻辑
 # ============================================================
 
-async def _has_pending_interrupt(thread_id: str, config: dict) -> bool:
+async def _has_pending_interrupt(
+    thread_id: str, config: dict, user_id: str | None = None
+) -> bool:
     """判断该会话是否真的存在待处理中断。
 
     为什么需要它：resume 接口对调用方是幂等的"继续执行"，但底层会真的跑副作用
@@ -271,7 +273,13 @@ async def _has_pending_interrupt(thread_id: str, config: dict) -> bool:
     读接口（GET /chat/{thread_id}、/history/*）不经过它，行为不变。
     """
     try:
-        state = await agent_loader.agent.aget_state(config)
+        # 所有 agent graph 共享同一个 checkpointer，因此任意用户的 graph 都能读
+        # 任意 thread 的状态；优先用当前用户的（已在缓存里，零额外开销）。
+        graph = (
+            await agent_loader.get_agent_for_user(user_id) if user_id
+            else agent_loader.agent
+        )
+        state = await graph.aget_state(config)
     except Exception as e:  # noqa: BLE001
         # 判据不可用：拒绝本次恢复（fail-closed），并记录以便排查
         write_debug_log(
@@ -333,7 +341,7 @@ async def stream_chat_response(
         # 注意：判据查询失败时 _has_pending_interrupt 返回 False（fail-closed），
         # 与"中断已被消费"走同一条拒绝分支，因此提示语要同时覆盖这两种情况，
         # 并引导用户刷新重试（写操作宁可少执行一次，也不能重复执行）。
-        if not await _has_pending_interrupt(thread_id, config):
+        if not await _has_pending_interrupt(thread_id, config, user_id):
             yield create_sse_message({
                 "type": "error",
                 "message": "无法确认该会话存在待处理的中断（可能已处理过，或状态查询失败），"
@@ -368,9 +376,12 @@ async def stream_chat_response(
             "is_resume": resume_data is not None,
         })
 
-        # 流式调用 agent.astream()
+        # 取当前用户的 agent graph（首次调用会分配/认领沙箱，之后命中缓存）
+        user_graph = await agent_loader.get_agent_for_user(user_id)
+
+        # 流式调用 astream()
         # stream_mode=["messages", "values"] — messages 流显示 + values 流检测中断
-        async for chunk in agent_loader.agent.astream(
+        async for chunk in user_graph.astream(
             input=current_input,
             config=config,
             context=context,
@@ -761,7 +772,7 @@ async def get_chat_state(
         if not agent_loader.check_thread_access(thread_id, identity.user_id):
             raise HTTPException(status_code=403, detail="无权访问该会话")
 
-        messages = await agent_loader.get_current_messages(thread_id)
+        messages = await agent_loader.get_current_messages(thread_id, user_id=identity.user_id)
 
         message_list = []
         for i, msg in enumerate(messages):
@@ -803,7 +814,7 @@ async def get_chat_history(
         if not agent_loader.check_thread_access(thread_id, identity.user_id):
             raise HTTPException(status_code=403, detail="无权访问该会话")
 
-        states = await agent_loader.get_state_history(thread_id, limit)
+        states = await agent_loader.get_state_history(thread_id, limit, user_id=identity.user_id)
 
         return {
             "thread_id": thread_id,

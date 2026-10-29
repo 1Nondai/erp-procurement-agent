@@ -1,4 +1,4 @@
-# 实验设备 · ERP 采购智能助手
+# ERP 采购智能助手 · Procurement Copilot
 
 ![CI](../../actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/Python-3.12-3776ab)
@@ -9,7 +9,10 @@
 > 面向实验台器具制造企业的采购 Agent：用自然语言完成**查料、比价、看库存、下单改单**，
 > 写操作经人工审批后落到 PostgreSQL，全链路可追溯、可重放、不重复下单。
 
-利环康生产钢木/全钢实验台、通风柜、药品柜。一张实验台背后是几十种材料——
+> 演示企业「明远实验装备」为**虚构主体**，仅用于构造真实的采购场景与数据；
+> 与任何真实公司无关。
+
+明远生产钢木/全钢实验台、通风柜、药品柜。一张实验台背后是几十种材料——
 理化板、环氧树脂板、冷轧钢板、滑轨铰链、水暖五金、电气件、通风管件。
 采购员的日常是：这个台面现在谁家便宜、库存够不够、这个项目料钱花了多少、能不能改交期。
 
@@ -25,6 +28,7 @@
 | 误写 | `order_create` / `order_update` 执行前强制人工审批 | `src/api_view/api/chat.py` + `InterruptBanner.vue` |
 | 重复写 | 业务指纹去重 + pending 占位原子抢占 | `src/mcp_server/idempotency.py` |
 | 越界执行 | 代码只在 OpenSandbox 跑，出网默认拒绝 + 主机白名单 | `src/agent/backends/sandbox_setup.py` |
+| 沙箱长时间不可用 | 每步探活 → 就地换芯重建 → 连续失败熔断 | `src/agent/middlewares/sandbox_health.py` · `sandbox_breaker.py` |
 
 再加一条**数据正确性**的闸门：订单总额不接受调用方传入，一律由 `repository` 用
 `Decimal` 按明细重算后落库——库里的账和明细永远对得上（`src/mcp_server/repository.py`）。
@@ -41,6 +45,8 @@
 | **写操作幂等** | 指纹剔除 `orderNumber`/`orderTime`；并发同指纹请求只放行一个 | `src/mcp_server/tools/order_tools.py` |
 | **RAG 知识检索** | 采购制度、台面选型、五金/水暖/电气/通风选型、供应商 QSDC、库存策略 | `src/rag/knowledge_docs.py` |
 | **评测集** | 13 条用例：检索层 / 答案层可离线回归，路由层标 skipped | `src/eval/` |
+| **沙箱池 + 预热** | 启动预热一个沙箱，首个用户直接认领（省掉 10~20s 创建）；同一用户的多条会话共享同一沙箱文件系统 | `src/agent/backends/sandbox_manager.py` |
+| **沙箱自愈** | 代理句柄"换芯不换壳"：沙箱挂了就地重建，graph/中间件/工具闭包全部无感知；连续失败熔断止损 | `sandbox_proxy.py` · `middlewares/sandbox_health.py` |
 | **多用户隔离** | `X-User-Id` → `/memories/{user_id}/`，白名单校验防路径穿越 | `src/api_view/identity.py` |
 | **流式前端** | Vue 3 + SSE：token、工具调用过程、审批卡片、深浅主题 | `frontend/src/` |
 
@@ -52,7 +58,10 @@ flowchart LR
     API --> A[主 Agent<br/>协调者]
     A -->|task| S1[procurement-analyst<br/>比价 · 分析 · 图表]
     A -->|task| S2[procurement-order<br/>下单 · 改单 · 查询]
-    S1 --> SB[OpenSandbox<br/>代码执行 · 出网白名单]
+    A -.per-user agent graph.-> MGR[sandbox_manager<br/>预热池 · 注册表 · 重建]
+    MGR --> SB[OpenSandbox<br/>代码执行 · 出网白名单]
+    MGR -.绑定关系.-> REG[(PostgreSQL<br/>ops.sandbox_registry)]
+    S1 --> SB
     S2 --> HITL{HITL 审批}
     HITL -->|approve| MCP
     S1 --> MCP[FastMCP Server<br/>7 个采购工具]
@@ -107,6 +116,13 @@ docker run --rm -d --name opensandbox-server -p 8080:8080 \
 
 > ⚠️ **端口冲突**：OpenSandbox 默认 8080，很多本机服务也占 8080。
 > 冲突时换端口并设置 `SANDBOX_DOMAIN=http://127.0.0.1:8081`。
+
+沙箱由 `sandbox_manager` 托管（不是每次请求新建）：
+
+- 启动时预热一个沙箱放进池里，**第一个用户直接认领**，不用等创建；
+- 认领后后台异步补一个，保证下一个人也大概率零等待；
+- 绑定关系写 `ops.sandbox_registry`，进程重启后能按 id 重连（连不上就重建并覆盖绑定）；
+- 本地调试嫌预热慢：`SANDBOX_WARM_POOL=0`；熔断阈值：`SANDBOX_BREAKER_THRESHOLD=2`。
 
 ### 3. 起 MCP Server（8000）
 
@@ -220,6 +236,11 @@ python src/eval/run_eval.py --skip-answer   # 只测检索层
   简化实现，代价是丢失明细级的修改历史（真实系统应记审计表）。
 - **没有权限模型**：谁能审哪一档金额的订单写在知识库里，靠提示词约束，没有后端强制。
 - **沙箱依赖外部服务**：没有 OpenSandbox 时 Agent 起不来（代码执行是分析链路的一部分）。
+- **沙箱池是单机内存池**：预热池与 `SANDBOX_BACKENDS` 都在进程内存里，多副本部署时
+  每个副本各自预热、各自缓存（注册表共享，但沙箱不会跨副本复用）。
+  要做成真正共享的池，需要把"分配/回收"改成注册表上的原子抢占（`SELECT ... FOR UPDATE SKIP LOCKED`）。
+- **沙箱健康检查是按步探活**：`echo ok` 只能证明容器活着，证明不了沙箱里的 venv/依赖完好；
+  依赖损坏要靠"工具连续报错 → 熔断 → 人工介入重建"兜底。
 
 ## 九、文档
 
