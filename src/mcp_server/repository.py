@@ -696,3 +696,76 @@ async def material_categories() -> List[str]:
     """物料大类（给提示词/前端做筛选用，避免模型自己编分类名）。"""
     rows = await fetch_all("SELECT DISTINCT category FROM erp.material WHERE status = 1 ORDER BY category")
     return [r["category"] for r in rows]
+
+
+# ============================================================
+# 工程单（项目）
+# ============================================================
+
+async def list_projects(
+    project_code: Optional[str] = None,
+    status: Optional[int] = None,
+    limit: int = 20,
+) -> Dict[str, Any]:
+    """查工程单及其采购情况：订单数、采购额、预算占用率、未交/已入库单数。
+
+    为什么把"预算占用率"放在 SQL 里算而不是让模型算：
+        它 = 采购额 / 合同额，两个数都可能为 NULL（未签合同 / 还没采购）。
+        模型做除法时最常犯的错是把 NULL 当 0，算出"预算占用 0%"这种误导性结论。
+        在 SQL 里用 NULLIF 显式处理，返回 None 让调用方自己决定怎么表达。
+
+    为什么排除取消单（status = 5）：
+        业务口径上取消单不计入采购额，否则预算占用率会虚高，导致误判"这个项目没钱了"。
+    """
+    where = ["1 = 1"]
+    params: List[Any] = []
+    if project_code:
+        where.append("p.code = %s")
+        params.append(project_code)
+    if status is not None:
+        where.append("p.status = %s")
+        params.append(int(status))
+
+    rows = await fetch_all(
+        f"""
+        SELECT p.id, p.code, p.name, p.customer, p.project_type,
+               p.contract_amount, p.status, p.start_date, p.due_date,
+               COUNT(o.id) FILTER (WHERE o.status <> 5)              AS order_count,
+               COUNT(o.id) FILTER (WHERE o.status IN (2, 3))        AS pending_orders,
+               COUNT(o.id) FILTER (WHERE o.status = 4)              AS delivered_orders,
+               COALESCE(SUM(o.total_amount) FILTER (WHERE o.status <> 5), 0) AS purchased_amount
+          FROM erp.project p
+          LEFT JOIN erp.purchase_order o ON o.project_id = p.id
+         WHERE {' AND '.join(where)}
+         GROUP BY p.id
+         ORDER BY p.id
+         LIMIT %s
+        """,
+        params + [max(1, min(int(limit), 100))],
+    )
+
+    data = []
+    for r in rows:
+        contract = _num(r["contract_amount"])
+        purchased = _num(r["purchased_amount"]) or 0.0
+        usage = round(purchased / contract * 100, 2) if contract else None
+        data.append(
+            {
+                "projectId": r["id"],
+                "code": r["code"],
+                "name": r["name"],
+                "customer": r["customer"],
+                "projectType": r["project_type"],
+                "contractAmount": contract,
+                "purchasedAmount": purchased,
+                "budgetUsagePct": usage,
+                "status": r["status"],
+                "statusText": {1: "进行中", 2: "已交付", 3: "已关闭"}.get(r["status"], "未知"),
+                "orderCount": r["order_count"],
+                "pendingOrders": r["pending_orders"],
+                "deliveredOrders": r["delivered_orders"],
+                "startDate": _iso(r["start_date"]),
+                "dueDate": _iso(r["due_date"]),
+            }
+        )
+    return {"ok": True, "count": len(data), "data": data}

@@ -55,9 +55,11 @@ from mcp_server.tools.suppliers_tools import register_supplier_tools  # noqa: E4
 from mcp_server.tools.materials_tools import register_material_tools  # noqa: E402
 from mcp_server.tools.order_tools import register_order_tools  # noqa: E402
 from mcp_server.tools.inventory_tools import register_inventory_tools  # noqa: E402
+from mcp_server.tools.projects_tools import register_project_tools  # noqa: E402
 
 register_supplier_tools(mcp)
 register_material_tools(mcp)
+register_project_tools(mcp)
 register_order_tools(mcp)
 register_inventory_tools(mcp)
 

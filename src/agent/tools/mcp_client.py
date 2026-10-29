@@ -53,7 +53,7 @@ MCP_SERVER_CONFIG = _default_server_config()
 # 工具分组规则（前缀匹配）
 # supplier_/material_/inventory_ 归分析类，order_ 归订单类：
 # 这样"查"和"写"在物理上就分到两个子 Agent，写操作只走带审批的那条链路。
-ANALYST_TOOL_PREFIXES = ("supplier_", "material_", "inventory_")
+ANALYST_TOOL_PREFIXES = ("supplier_", "material_", "inventory_", "project_")
 ORDER_TOOL_PREFIXES = ("order_",)
 CHART_TOOL_PREFIXES = ("generate_",)  # 图表 MCP 的可视化工具
 

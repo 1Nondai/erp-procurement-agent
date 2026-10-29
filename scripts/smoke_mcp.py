@@ -59,10 +59,10 @@ async def main() -> int:
         names = sorted(t.name for t in tools)
         print(f"\n1) 工具注册（{len(names)} 个）: {', '.join(names)}")
         expected = {
-            "supplier_query", "material_query", "material_price_compare",
+            "supplier_query", "material_query", "material_price_compare", "project_query",
             "order_create", "order_update", "order_search_details", "inventory_warning",
         }
-        check("7 个业务工具全部注册", expected.issubset(set(names)), f"缺 {expected - set(names)}")
+        check("8 个业务工具全部注册", expected.issubset(set(names)), f"缺 {expected - set(names)}")
 
         # ---- 2. 只读工具 ----
         print("\n2) 只读工具")
@@ -82,6 +82,12 @@ async def main() -> int:
         w = payload(await client.call_tool("inventory_warning", {"limit": 5}))
         check("inventory_warning 有预警", w.get("count", 0) >= 1, f"{w.get('count')} 条")
         check("预警带缺口与提前期", all("shortage" in d and "leadTimeDays" in d for d in w.get("data") or []))
+
+        pj = payload(await client.call_tool("project_query", {"limit": 10}))
+        check("project_query 返回 3 个工程单", pj.get("count") == 3, f"实际 {pj.get('count')}")
+        check("工程单带预算占用率",
+              any(x.get("budgetUsagePct") for x in pj.get("data") or []),
+              str([x.get("budgetUsagePct") for x in pj.get("data") or []]))
 
         d = payload(await client.call_tool("order_search_details", {"project_code": "LHK-2026-001", "limit": 5}))
         check("order_search_details 按项目查得到", d.get("count", 0) >= 1, f"{d.get('count')} 行")

@@ -87,6 +87,19 @@ async def main() -> int:
     by_date = await repo.search_order_details(start_date="2026-10-01", end_date="2026-10-31")
     check("按下单日期区间", by_date["count"] >= 1, f"{by_date['count']} 行")
 
+    print("\n5b) 工程单（采购额 / 预算占用）")
+    projects = await repo.list_projects()
+    check("工程单数 = 3", projects["count"] == 3, f"实际 {projects['count']}")
+    by_code = {x["code"]: x for x in projects["data"]}
+    check("项目一有采购额", by_code["LHK-2026-001"]["purchasedAmount"] > 0,
+          f"{by_code['LHK-2026-001']['purchasedAmount']}")
+    check("预算占用率已算（非空且在 0-100 之间）",
+          all(0 < x["budgetUsagePct"] < 100 for x in projects["data"] if x["budgetUsagePct"] is not None),
+          str([x["budgetUsagePct"] for x in projects["data"]]))
+    check("已交付项目口径正确", by_code["LHK-2026-003"]["statusText"] == "已交付")
+    ongoing = await repo.list_projects(status=1)
+    check("按状态筛选（进行中）", all(x["status"] == 1 for x in ongoing["data"]), f"{ongoing['count']} 个")
+
     print("\n6) 下单（含总额重算与状态校验）")
     created = await repo.create_order(
         details=[{"materialId": 6, "quantity": 10, "unitPrice": 165.00},

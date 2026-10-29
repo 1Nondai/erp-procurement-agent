@@ -22,7 +22,8 @@ tools:
   - supplier_query             # 供应商查询（名称/主供品类/最低信用等级）
   - material_query             # 物料分页查询（台面/板材/钢材/五金/玻璃/水暖/电气/通风/涂装/辅材）
   - material_price_compare     # 物料比价（多供应商报价 + summary 结论）
-  - inventory_warning          # 库存预警（OUT_OF_STOCK / CRITICAL / LOW）
+  - inventory_warning
+  - project_query              # 工程单采购额与预算占用 → erp.project 汇总
   # 图表生成（26 种图表/地图/图表合并为 1 个入口，通过 chart_type 参数路由）
   - generate_visualization     # 可视化生成入口
   # 通用工具
