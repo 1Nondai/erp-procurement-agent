@@ -1,0 +1,19 @@
+# 统一换行符：仓库内存 LF，Windows 检出交给 Git 处理，
+# 避免"整个文件都改了"的假 diff。
+* text=auto eol=lf
+
+# 脚本按平台保留
+*.sh   text eol=lf
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+# 二进制
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+
+# 前端构建产物与锁文件不参与 diff 统计
+frontend/package-lock.json -diff

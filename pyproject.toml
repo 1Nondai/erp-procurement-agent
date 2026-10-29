@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=73.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qingchi-erp-agent"
+version = "1.1.0"
+description = "擎驰机车 ERP 采购智能助手：DeepAgents 多 Agent 编排 + MCP 桥接 ERP 后端 + RAG 知识检索 + HITL 订单审批"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+keywords = ["llm", "agent", "deepagents", "langgraph", "mcp", "rag", "erp"]
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    # Agent 框架
+    "deepagents>=0.7.0",
+    "langchain>=1.4.0",
+    "langchain-openai>=1.6.0",
+    "langchain-mcp-adapters>=0.3.0",
+    "langgraph>=1.2.0",
+    # Web API
+    "fastapi>=0.141.0",
+    "uvicorn>=0.52.0",
+    "sse-starlette>=3.4.0",
+    # MCP Server
+    "mcp>=1.29.0",
+    "fastmcp>=3.2.0",
+    # 存储 / 沙箱 / 模型服务
+    "psycopg[binary,pool]>=3.3.0",
+    "opensandbox>=0.1.7",
+    "zai-sdk>=0.2.3",
+    # 通用
+    "httpx>=0.28.0",
+    "python-dotenv>=1.2.0",
+    "PyYAML>=6.0.0",
+    "numpy>=2.5.0",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.8.2", "mypy>=1.13.0", "pytest>=8.3.5", "langgraph-cli[inmem]>=0.4.14"]
+
+[tool.setuptools]
+packages = [
+    "agent",
+    "agent.backends",
+    "agent.memory",
+    "agent.middlewares",
+    "agent.subagents",
+    "agent.tools",
+    "api_view",
+    "api_view.api",
+    "mcp_server",
+    "mcp_server.tools",
+    "rag",
+    "eval",
+]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# 只把"真会出问题"的规则设为门禁：未定义名、未使用导入、裸 except、语法级错误。
+# 这里不追求把 300 条风格告警清零——能过 CI 的规则集才有意义，
+# 风格统一交给 formatter（ruff format），逻辑正确性交给测试。
+select = [
+    "E4",  # import 相关错误（重复导入、一行多导入）
+    "E7",  # 语句级错误（裸 except、lambda 赋值、一行多语句）
+    "E9",  # 运行期必错（语法/缩进）
+    "F",   # pyflakes：未定义名、未使用导入/变量
+]
+ignore = [
+    "E501",  # 行宽交给 formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E"]
+"src/test/*" = ["E"]

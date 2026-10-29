@@ -1,0 +1,52 @@
+# ============================================================
+# QingchiERP 一键编排（开发/演示环境）
+# ------------------------------------------------------------
+# 覆盖无状态依赖：PostgreSQL（checkpoint + Store + 展示消息）。
+#
+# 不放进编排的组件与原因：
+#   - Agent 后端 / 前端：需要 .env 里的 API Key 与本地代码热更新，
+#     直接跑 start_web.py 更顺手（也可仿照本文件自行扩展 service）；
+#   - OpenSandbox Server：由 Docker Desktop 单独运行（opensandbox-server 镜像），
+#     与本编排解耦；
+#   - MCP Server / Java ERP：MCP 依赖 Java 后端就绪，Java ERP 是业务方
+#     自有部署（localhost:8080），编排里无法假设其构建方式。
+#
+# 使用：
+#   docker compose up -d          # 启动 PostgreSQL
+#   docker compose ps             # 查看状态
+#   docker compose logs postgres  # 看日志
+#   docker compose down           # 停止（加 -v 连数据卷一起删）
+#
+# 启动方式（密码不再写死在文件里）：
+#   export POSTGRES_PASSWORD=<你的本地密码>   # Windows: set POSTGRES_PASSWORD=...
+#   docker compose up -d
+# 并让 .env 里的 POSTGRES_URI 与之匹配：
+#   postgresql://postgres:<你的本地密码>@localhost:5432/langgraph_db
+# ============================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp_openclaw_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      # 密码来自环境变量（本地可在 .env 或 shell 里设 POSTGRES_PASSWORD）；
+      # 不写死默认口令，缺失时 compose 直接报错，避免弱口令被提交进仓库。
+      # 本地开发默认 postgres/postgres，开箱即用；生产环境必须用 POSTGRES_PASSWORD 覆盖。
+      # 端口已只绑 127.0.0.1，弱口令不会被公网直接利用——但这不是"可以不改"的理由。
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-langgraph_db}
+    ports:
+      # 只绑定回环地址：数据库不对外网暴露，需要远程访问请走 SSH 隧道
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # 数据持久化：容器重建不丢 checkpoint 与用户记忆
+      - erp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d langgraph_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  erp_pgdata:

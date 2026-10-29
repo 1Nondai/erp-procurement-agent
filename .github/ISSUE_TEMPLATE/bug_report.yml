@@ -1,0 +1,51 @@
+name: Bug 报告
+description: 报告一个可复现的缺陷
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请尽量避免贴出 API Key、数据库连接串等敏感信息。
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 现象
+      description: 实际发生了什么？期望是什么？
+      placeholder: 发送"帮我比价火花塞"后，SSE 流在 tool_result 之后中断，前端停在"生成中"。
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 越具体越好；能贴日志就贴日志（请先脱敏）。
+      placeholder: |
+        1. python start_web.py --backend-only
+        2. POST /api/chat/stream 携带 X-User-Id: dev_default
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / 提交
+      placeholder: main@a1b2c3d
+  - type: dropdown
+    id: layer
+    attributes:
+      label: 出问题的层
+      options:
+        - 前端（Vue / SSE 渲染）
+        - Web API（FastAPI / 中断恢复）
+        - Agent 编排（主 Agent / 子 Agent）
+        - MCP Server（ERP 工具 / 幂等）
+        - RAG 知识库
+        - 沙箱 / 出网策略
+        - 其它 / 不确定
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境
+      placeholder: Windows 11 / Python 3.12 / Node 20 / PostgreSQL 16 / Docker Desktop

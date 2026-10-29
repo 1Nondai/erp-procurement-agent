@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ------------------------------------------------------------
+  # 后端：语法编译 + 静态检查 + 纯标准库单元测试
+  # 这三步不需要安装 langchain / psycopg 等重依赖，几十秒能跑完，
+  # 适合作为每次 push 的第一道门禁。
+  # ------------------------------------------------------------
+  backend:
+    name: 后端检查（compile / lint / unittest）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 语法编译
+        run: python -m compileall -q src tests start_web.py
+
+      - name: 静态检查（ruff）
+        run: |
+          python -m pip install --quiet ruff==0.17.3
+          python -m ruff check src tests start_web.py
+
+      - name: 单元测试（身份校验 / 订单幂等）
+        run: python -m unittest discover -s tests -v
+
+  # ------------------------------------------------------------
+  # 前端：依赖安装 + 生产构建（构建失败 = 不能发版）
+  # ------------------------------------------------------------
+  frontend:
+    name: 前端构建（npm ci / vite build）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 生产构建
+        run: npm run build

@@ -1,0 +1,44 @@
+# ============================================================
+# QingchiERP 直接依赖清单（声明式，非 pip freeze 全量导出）
+# ------------------------------------------------------------
+# 旧版问题：这是 `pip freeze` 的全量导出，含 150+ 个传递依赖的精确版本，
+# 且首行 `-e e:\my_project\project30` 指向一个已不存在的可编辑安装路径，
+# 换机器 `pip install -r requirements.txt` 必然失败。
+#
+# 新版原则：只声明"代码里直接 import"的顶层依赖，用下限版本约束；
+# 传递依赖由 pip 解析。需要锁定版本时可事后 `pip freeze > constraints.txt`。
+#
+# 实际运行环境：Python 3.12
+# 安装：pip install -r requirements.txt
+# ============================================================
+
+# ---- Agent 框架（多 Agent 编排 / 状态图 / 检查点）----
+deepagents>=0.7.0            # create_deep_agent 主框架
+langchain>=1.4.0             # 中间件、模型抽象
+langchain-openai>=1.6.0      # ChatOpenAI（DeepSeek 走 OpenAI 兼容协议）
+langchain-mcp-adapters>=0.3.0  # 把 MCP Server 工具转成 LangChain Tool
+langgraph>=1.2.0             # StateGraph / checkpointer / interrupt
+
+# ---- Web API 层 ----
+fastapi>=0.141.0             # 后端 REST + SSE 流式接口
+uvicorn>=0.52.0              # ASGI 服务器
+sse-starlette>=3.4.0         # SSE 响应支持（fastapi 传递依赖，显式声明）
+
+# ---- MCP Server（桥接 Java ERP 后端）----
+mcp>=1.29.0                  # MCP 协议实现
+fastmcp>=3.2.0               # FastMCP 工具注册与 streamable-http 传输
+
+# ---- 数据库 ----
+psycopg[binary,pool]>=3.3.0  # PostgreSQL 驱动 + 二进制包 + 连接池
+
+# ---- 沙箱（OpenSandbox 代码执行环境）----
+opensandbox>=0.1.7
+
+# ---- 智谱 AI（web_search / RAG embedding）----
+zai-sdk>=0.2.3
+
+# ---- 工具库 ----
+httpx>=0.28.0                # 异步 HTTP 客户端（沙箱连接 / MCP / 工具调用）
+python-dotenv>=1.2.0         # .env 加载（env_utils 统一入口）
+PyYAML>=6.0.0                # 子 Agent YAML 配置 / url_mapping / 记忆 frontmatter
+numpy>=2.5.0                 # RAG 向量计算（余弦相似度检索）
