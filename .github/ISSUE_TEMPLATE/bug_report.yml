@@ -11,7 +11,7 @@ body:
     attributes:
       label: 现象
       description: 实际发生了什么？期望是什么？
-      placeholder: 发送"帮我比价火花塞"后，SSE 流在 tool_result 之后中断，前端停在"生成中"。
+      placeholder: 发送"帮我对比理化板台面的供应商报价"后，SSE 流在 tool_result 之后中断，前端停在"生成中"。
     validations:
       required: true
   - type: textarea
