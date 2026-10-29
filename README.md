@@ -244,6 +244,8 @@ python src/eval/run_eval.py --skip-answer   # 只测检索层
 
 ## 九、文档
 
+- [从 0 到 1 搭建讲义](docs/BUILD_FROM_ZERO.md) — 按搭建顺序讲七章：
+  概念 → DeepAgents → 文件后端 → 子 Agent → 沙箱池化与自愈 → 上下文工程 → 项目装配
 - [架构与取舍](docs/ARCHITECTURE.md) — 分层、数据模型、请求链路、每个决策否掉了什么
 - [评测体系设计](docs/EVALUATION.md) — 分层评测思路、用例设计原则、脚本说明
 
