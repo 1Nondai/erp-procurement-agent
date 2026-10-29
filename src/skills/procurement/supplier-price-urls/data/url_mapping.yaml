@@ -1,30 +1,118 @@
-# 采购零配件报价网址映射表
-# 格式: 零部件名称 → 供应商名称 → 报价页面URL
+# 采购物料询价网址映射表（利环康实验设备 · 实验台/通风柜材料）
+# 格式: 物料名称 → 询价站点/商家 → 询价页面URL
 #
 # URL 指向的页面包含完整产品信息:
-#   - 价格（当前售价、历史价格）
-#   - 型号、单位、品牌、材质等基本信息
+#   - 价格（当前售价、行情价、历史价格）
+#   - 规格、单位、品牌、材质等基本信息
 #   - 爬虫技能可从页面提取上述全部数据
 #
+# 字段说明（结构固定，加载器按这三个键读取）:
+#   part_name  物料名称（含规格/品牌描述），与 ERP material_query 返回的 name+spec 对齐
+#   supplier   询价站点或商家名称；公开 B2B 平台写平台名（多供应商）
+#   url        询价/价格页面地址（必须真实可访问）
+#
 # 使用流程:
-#   1. MCP 工具获取 ERP 数据（零部件名、供应商名）
-#   2. 在本文件中按 零部件名 + 供应商名 查找对应 URL
+#   1. MCP 工具获取 ERP 数据（material_query 的物料名、supplier_query 的供应商名）
+#   2. 在本文件中按 物料名 查找对应询价 URL（分类见各段注释）
 #   3. 找到 URL → 爬虫技能获取最新报价 + 产品详情
 #   4. 未找到 URL → web_search 搜索市场价格
+#
+# 维护要求: 新增条目只填真实存在、可访问的站点域名，禁止填写占位域名或内网演示地址。
 
 mappings:
-  # === 火花塞 ===
-  - part_name: "【NGK原装】摩托车火花塞 Iridium IX CR9EIX 铱金火花塞"
-    supplier: "电气配件专营店"
-    url: "http://39.100.100.28/spark-plug.html"
+  # === 台面（理化板 / 环氧树脂板 / 陶瓷 / 不锈钢）===
+  - part_name: "理化板台面 1220×2440×13mm 威盛亚"
+    supplier: "1688 平台（多供应商）"
+    url: "https://s.1688.com/selloffer/offer_search.htm?keywords=%E7%90%86%E5%8C%96%E6%9D%BF%E5%8F%B0%E9%9D%A2"
 
-  - part_name: "【博世BOSCH原装】摩托车火花塞 FR7DC+ 铂金火花塞 高性能"
-    supplier: "博世配件旗舰店"
-    url: "http://39.100.100.28/spark-plug-bosch.html"
+  - part_name: "环氧树脂板台面 1220×2440×19mm 进口"
+    supplier: "1688 平台（多供应商）"
+    url: "https://s.1688.com/selloffer/offer_search.htm?keywords=%E7%8E%AF%E6%B0%A7%E6%A0%91%E8%84%82%E6%9D%BF%E5%8F%B0%E9%9D%A2"
 
-  - part_name: "【电装DENSO原装】摩托车火花塞 U27ETR 铱金 省油型"
-    supplier: "电装配件专营店"
-    url: "http://39.100.100.28/spark-plug-denso.html"
+  # === 板材（三聚氰胺板 / 铝型材）===
+  - part_name: "三聚氰胺板 1220×2440×18mm 白色"
+    supplier: "1688 平台（多供应商）"
+    url: "https://s.1688.com/selloffer/offer_search.htm?keywords=%E4%B8%89%E8%81%9A%E6%B0%B0%E8%83%BA%E6%9D%BF"
+
+  # === 钢材（冷轧板 / 镀锌板 / 不锈钢板 / 方管）===
+  - part_name: "冷轧钢板 SPCC 1.0mm 1220×2440"
+    supplier: "找钢网"
+    url: "https://www.zhaogang.com/"
+
+  - part_name: "镀锌钢板 1.5mm 1220×2440"
+    supplier: "我的钢铁网"
+    url: "https://www.mysteel.com/"
+
+  - part_name: "方管 Q235 40×40×1.5"
+    supplier: "我的钢铁网"
+    url: "https://www.mysteel.com/"
+
+  # === 五金（滑轨 / 铰链 / 拉手 / 脚杯 / 柜锁 / 螺丝）===
+  - part_name: "三节静音滑轨 450mm 承重 35kg"
+    supplier: "五金网"
+    url: "https://www.hardware.cn/"
+
+  - part_name: "液压缓冲铰链 304 全盖"
+    supplier: "1688 平台（多供应商）"
+    url: "https://s.1688.com/selloffer/offer_search.htm?keywords=%E6%B6%B2%E5%8E%8B%E7%BC%93%E5%86%B2%E9%93%B0%E9%93%BE"
+
+  - part_name: "可调脚杯 M10 调节 20mm"
+    supplier: "五金网"
+    url: "https://www.hardware.cn/"
+
+  # === 玻璃（钢化玻璃 / 视窗玻璃）===
+  - part_name: "钢化玻璃 5mm 磨边"
+    supplier: "中国玻璃网"
+    url: "https://www.glass.com.cn/"
+
+  - part_name: "视窗玻璃 6mm 精磨边"
+    supplier: "中国玻璃网"
+    url: "https://www.glass.com.cn/"
+
+  # === 水暖（水龙头 / 水槽 / 存水弯 / 洗眼器 / 地漏）===
+  - part_name: "实验室水龙头 三口 全铜 陶瓷阀芯"
+    supplier: "水暖配件网"
+    url: "http://www.cnsnpj.com/"
+
+  - part_name: "PP 水槽 550×450×300"
+    supplier: "1688 平台（多供应商）"
+    url: "https://s.1688.com/selloffer/offer_search.htm?keywords=PP%E6%B0%B4%E6%A7%BD"
+
+  # === 电气（插座盒 / 断路器 / 电源线 / 灯带）===
+  - part_name: "五孔插座盒 220V 10A 实验台专用"
+    supplier: "中国工控网"
+    url: "https://www.gongkong.com/product/"
+
+  - part_name: "漏电断路器 2P 32A 30mA"
+    supplier: "中国工控网"
+    url: "https://www.gongkong.com/product/"
+
+  # === 通风（抽气罩 / 通风管 / 轴流风机）===
+  - part_name: "万向抽气罩 φ75 三节 亚克力罩"
+    supplier: "1688 平台（多供应商）"
+    url: "https://s.1688.com/selloffer/offer_search.htm?keywords=%E4%B8%87%E5%90%91%E6%8A%BD%E6%B0%94%E7%BD%A9"
+
+  - part_name: "PP 通风管 φ250 阻燃"
+    supplier: "1688 平台（多供应商）"
+    url: "https://s.1688.com/selloffer/offer_search.htm?keywords=PP%E9%80%9A%E9%A3%8E%E7%AE%A1"
+
+  # === 涂装（粉末涂料 / 密封胶）===
+  - part_name: "环氧粉末涂料 RAL7035 灰白"
+    supplier: "中国化工网"
+    url: "https://china.chemnet.com/price/"
+
+  - part_name: "中性硅酮密封胶 590ml 白色"
+    supplier: "中国化工网"
+    url: "https://china.chemnet.com/price/"
+
+  # === 辅材（脚垫 / 封边条 / 螺丝组件）===
+  - part_name: "尼龙脚垫 φ25 耐磨"
+    supplier: "1688 平台（多供应商）"
+    url: "https://s.1688.com/selloffer/offer_search.htm?keywords=%E5%B0%BC%E9%BE%99%E8%84%9A%E5%9E%AB"
+
+  - part_name: "PVC 封边条 2mm 与板材同色"
+    supplier: "1688 平台（多供应商）"
+    url: "https://s.1688.com/selloffer/offer_search.htm?keywords=PVC%E5%B0%81%E8%BE%B9%E6%9D%A1"
 
   # === 以下待补充实际业务数据 ===
   # - part_name: ""

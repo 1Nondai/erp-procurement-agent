@@ -51,7 +51,9 @@ def _default_server_config() -> dict:
 MCP_SERVER_CONFIG = _default_server_config()
 
 # 工具分组规则（前缀匹配）
-ANALYST_TOOL_PREFIXES = ("supplier_", "part_", "inventory_")
+# supplier_/material_/inventory_ 归分析类，order_ 归订单类：
+# 这样"查"和"写"在物理上就分到两个子 Agent，写操作只走带审批的那条链路。
+ANALYST_TOOL_PREFIXES = ("supplier_", "material_", "inventory_")
 ORDER_TOOL_PREFIXES = ("order_",)
 CHART_TOOL_PREFIXES = ("generate_",)  # 图表 MCP 的可视化工具
 
@@ -68,7 +70,7 @@ async def load_mcp_tools(
     Returns:
         (all_tools, analyst_tools, order_tools, chart_tools) 四元组
         - all_tools: 全部 MCP 工具列表（ERP + 图表）
-        - analyst_tools: 供应商查询 + 零部件查询 + 库存预警工具
+        - analyst_tools: 供应商查询 + 物料查询/比价 + 库存预警工具
         - order_tools: 订单创建 + 订单更新 + 订单搜索工具
         - chart_tools: 图表/地图/可视化生成工具（来自图表 MCP Server，未配置时为空）
     """
@@ -113,7 +115,7 @@ async def load_mcp_tools(
         if t.name.startswith(ORDER_TOOL_PREFIXES)
     ]
 
-    # 图表工具（来自魔塔社区）
+    # 图表工具（来自外部可视化 MCP Server，未配置时为空）
     chart_tools = [
         t for t in analysis_tools
         if t.name.startswith(CHART_TOOL_PREFIXES)

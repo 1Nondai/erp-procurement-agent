@@ -104,8 +104,8 @@ def load_subagent_configs(
 #   注：不带前缀但含 * 或 ? 的写法也会按通配处理，方便手写。
 #
 # 为什么废弃原来的 `if pattern in tool_name`（无条件子串匹配）：
-#   1. 过宽：写 `part` 会同时命中 part_query / part_search / part_by_supplier，
-#      有时是想要的，有时是误伤（例如只想给 part_query）；
+#   1. 过宽：写 `material` 会同时命中 material_query / material_price_comparey_supplier，
+#      有时是想要的，有时是误伤（例如只想给 material_query）；
 #   2. 静默扩容：上游新增 order_query_detail 之后，原本只想匹配 order_query 的
 #      配置会突然多带一个工具，模型行为随之改变，而配置和代码都没动过；
 #   3. 不可审计：无法区分"我有意收编一组工具"和"我手滑写宽了"。

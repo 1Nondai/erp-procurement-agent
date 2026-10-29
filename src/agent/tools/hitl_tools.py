@@ -24,7 +24,7 @@ def request_order_info(missing_fields: str, collected_data: str) -> str:
     等待人工输入补充信息后恢复。
 
     Args:
-        missing_fields: 缺少的字段列表及说明（如 "partId（物料ID，必填）"）
+        missing_fields: 缺少的字段列表及说明（如 "materialId（物料ID，必填）"）
         collected_data: 已收集到的数据（结构化描述，如 "物料ID=100, 数量=50"）
 
     Returns:
