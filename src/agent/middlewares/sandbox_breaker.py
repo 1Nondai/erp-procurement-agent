@@ -1,75 +1,42 @@
 """
 沙箱熔断中间件。
 
-before_model 检查最近消息中的沙箱相关错误，连续失败 ≥ 阈值时
-跳转到 end 并注入通知消息，防止无限恢复循环。
+在 `before_model` 检查最近的工具返回：连续出现沙箱类错误、且次数超过阈值时，
+直接跳到 `end` 并注入一条通知消息，让这一轮对话"体面地结束"，
+而不是让 Agent 在"重建沙箱 → 再失败 → 再重建"里无限循环烧钱。
 
-与 SandboxHealthMiddleware 配合：
-- SandboxHealthMiddleware：主动 ping → 自动恢复
-- SandboxCircuitBreakerMiddleware：恢复失败次数超限 → 熔断
+为什么需要熔断（而不是只做健康检查自动恢复）：
+    自动恢复能处理"偶发挂掉"，但它有个前提——恢复后能好。
+    如果沙箱服务整个不可用（docker 挂了、镜像拉不到、宿主机没内存），
+    健康检查每次都会重建失败，而 Agent 每次失败都会再试一遍：
+    一次用户提问可能触发几十次建沙箱，单次 10~20 秒，直接把请求拖死。
+    熔断的作用就是"承认救不回来，先停下来告诉人"。
+
+与 SandboxHealthMiddleware 的分工：
+    - SandboxHealthMiddleware：主动探活 → 恢复（乐观路径）
+    - SandboxCircuitBreakerMiddleware：恢复失败次数超限 → 熔断（悲观路径）
+
+判断逻辑本身在 `sandbox_error_signals`（纯函数，可在裸环境离线单测）。
 """
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware, AgentState, hook_config
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage
 from langgraph.runtime import Runtime
+
+from agent.middlewares.sandbox_error_signals import (
+    CIRCUIT_BREAKER_MARKER,
+    count_consecutive_sandbox_errors,
+)
 
 logger = logging.getLogger(__name__)
 
+# 连续几次沙箱错误就熔断。默认 2：一次失败可能只是抖动，
+# 连续两次基本可以确认"恢复也救不回来"，再试只是浪费用户时间。
 THRESHOLD = 2
-
-CIRCUIT_BREAKER_MARKER = "SandboxCircuitBreaker"
-
-_SANDBOX_ERROR_KEYWORDS = [
-    "SandboxBackendProxy",
-    "sandbox",
-    "SandboxError",
-    "ConnectionError",
-    "ConnectionRefusedError",
-    "TimeoutError",
-    "execute",
-    "沙箱",
-    "不可达",
-    "连接",
-    "超时",
-]
-
-
-def _looks_like_sandbox_error(text: str) -> bool:
-    text_lower = text.lower()
-    return any(kw.lower() in text_lower for kw in _SANDBOX_ERROR_KEYWORDS)
-
-
-def _count_consecutive_sandbox_errors(
-    messages: Sequence[BaseMessage],
-) -> int:
-    """从消息列表末尾向前统计连续沙箱错误的 ToolMessage 数量。"""
-    count = 0
-    for msg in reversed(messages):
-        if isinstance(msg, ToolMessage):
-            content = getattr(msg, "content", "")
-            if isinstance(content, list):
-                content = " ".join(
-                    b.get("text", "") if isinstance(b, dict) else str(b)
-                    for b in content
-                )
-            status = getattr(msg, "status", None)
-            if status == "error" and _looks_like_sandbox_error(str(content)):
-                count += 1
-                continue
-            break
-        elif isinstance(msg, AIMessage):
-            content = getattr(msg, "content", "")
-            text = content if isinstance(content, str) else str(content)
-            if CIRCUIT_BREAKER_MARKER in text:
-                return 0
-        elif getattr(msg, "type", "") in {"human", "system"}:
-            break
-    return count
 
 
 class SandboxCircuitBreakerMiddleware(AgentMiddleware):
@@ -89,7 +56,7 @@ class SandboxCircuitBreakerMiddleware(AgentMiddleware):
         if not messages:
             return None
 
-        count = _count_consecutive_sandbox_errors(messages)
+        count = count_consecutive_sandbox_errors(messages)
         if count <= self.threshold:
             return None
 
@@ -100,6 +67,7 @@ class SandboxCircuitBreakerMiddleware(AgentMiddleware):
             f"{CIRCUIT_BREAKER_MARKER}: 连续 {count} 次沙箱操作失败，已触发熔断保护。"
             "请检查沙箱服务状态后重试，或联系管理员。"
         )
+        # 标记消息承担两个作用：告知用户 + 让下一轮计数归零（避免同轮反复熔断）
         return {"jump_to": "end", "messages": [AIMessage(content=content)]}
 
     @hook_config(can_jump_to=["end"])
