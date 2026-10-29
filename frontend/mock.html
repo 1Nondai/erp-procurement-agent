@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>组件视觉预览</title>
+    <script>
+      // 与 index.html 一致：支持 ?theme=dark|light，方便两套主题各看一遍
+      var q = new URLSearchParams(location.search).get('theme');
+      document.documentElement.setAttribute('data-theme', q === 'dark' ? 'dark' : 'light');
+    </script>
+    <style>
+      /* 预览容器：只负责排版，配色全部走 main.css 的设计令牌 */
+      .preview-wrap {
+        max-width: 940px;
+        margin: 0 auto;
+        padding: 28px 0 80px;
+      }
+      .preview-label {
+        margin: 26px 24px 6px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--text-3);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/mock-preview.js"></script>
+  </body>
+</html>

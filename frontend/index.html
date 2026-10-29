@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="擎驰机车 · 采购智能助手 — 基于 DeepAgents + LangGraph + MCP 沙箱执行的 ERP 采购 Agent" />
+  <meta name="theme-color" content="#0a0e14" />
+  <link rel="icon" type="image/svg+xml" href="/logo-mark.svg" />
+  <title>擎驰机车 · 采购智能助手</title>
+  <style>
+    /* 首屏内联样式：避免 Vue 挂载前的白闪，并让深色底先到位 */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      background: #fbfbfa;
+      color: #1b1d21;
+      font-family: "Inter", -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    html[data-theme="dark"],
+    html[data-theme="dark"] body {
+      background: #0f1012;
+      color: #eceef1;
+    }
+
+    #app {
+      height: 100%;
+    }
+
+    /* 挂载前的极简加载态：品牌标 + 呼吸，避免长时间空白 */
+    #boot {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      animation: bootPulse 1.8s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    /* 品牌标：直接放原色标识，不加色块 */
+    .boot-mark {
+      display: grid;
+      place-items: center;
+    }
+
+    .boot-mark img {
+      width: 42px;
+      height: auto;
+    }
+
+    html[data-theme="dark"] .boot-mark img {
+      filter: brightness(1.22);
+    }
+
+    .boot-text {
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      color: #8f949c;
+    }
+
+    @keyframes bootPulse {
+      0%, 100% { opacity: 0.45; }
+      50% { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="boot">
+    <div class="boot-mark"><img src="/logo-mark.svg" alt="" width="42" height="42" /></div>
+    <div class="boot-text">QINGCHI&nbsp;·&nbsp;PROCUREMENT&nbsp;AGENT</div>
+  </div>
+  <script>
+    // 在 Vue 挂载前应用主题，避免闪烁。
+    // 支持 ?theme=dark|light 直接预览（做视觉验收时方便），否则读用户选择，默认浅色。
+    try {
+      var q = new URLSearchParams(location.search).get('theme');
+      var saved = q === 'dark' || q === 'light' ? q : localStorage.getItem('erp_theme');
+      document.documentElement.setAttribute('data-theme', saved === 'dark' ? 'dark' : 'light');
+    } catch (e) {
+      /* localStorage 不可用时保持浅色 */
+    }
+  </script>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
