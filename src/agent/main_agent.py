@@ -192,7 +192,7 @@ async def create_main_agent(
         + list(extra_mcp_tools)
         + [generate_visualization]
         + [web_search]
-        + [knowledge_search]      # RAG 知识库检索（采购制度/零部件知识/供应商评估）
+        + [knowledge_search]      # RAG 知识库检索（采购制度/物料知识/供应商评估）
         + [request_order_info]
         + [assign_skill]
         + [download_sandbox_file]

@@ -54,8 +54,8 @@ SUMMARY_MODEL = ChatOpenAI(
 
 # ---------- 沙箱配置 ----------
 # OpenSandbox 沙箱配置连接（本地 Docker 部署）
-# 地址可用 SANDBOX_DOMAIN 覆盖；默认 8080 与 Java ERP 后端默认端口相同，
-# 同机联调时二者需要错开（改这里或改 ERP 端口）。
+# 地址可用 SANDBOX_DOMAIN 覆盖；默认 8080 与不少本机服务撞端口，
+# 联调时改这里或改对方端口即可。
 SANDBOX_CONFIG = ConnectionConfigSync(
     domain=os.environ.get("SANDBOX_DOMAIN", "http://127.0.0.1:8080"),
     use_server_proxy=True,
