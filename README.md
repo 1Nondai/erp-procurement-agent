@@ -1,4 +1,4 @@
-# 利环康实验设备 · ERP 采购智能助手
+# 实验设备 · ERP 采购智能助手
 
 ![CI](../../actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/Python-3.12-3776ab)
