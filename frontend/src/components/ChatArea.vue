@@ -92,27 +92,27 @@ const ICONS = {
 const suggestions = [
   {
     icon: ICONS.scale,
-    title: '三家火花塞比价',
-    desc: '拉外部报价 + 生成对比图',
-    prompt: '帮我对比 NGK、博世、电装三家火花塞的报价，并生成对比图表'
+    title: '台面比价',
+    desc: '理化板 vs 环氧树脂板',
+    prompt: '对比理化板台面与环氧树脂板台面在各供应商的报价，看最低价是谁、价差有多大'
   },
   {
     icon: ICONS.box,
-    title: '库存预警清单',
-    desc: '按缺口严重程度排序',
-    prompt: '查一下当前的库存预警清单，按缺口严重程度排序并给出补货建议'
-  },
-  {
-    icon: ICONS.trend,
-    title: '采购成本趋势',
-    desc: '定位涨得最快的物料',
-    prompt: '分析最近一个季度的采购成本趋势，找出成本上升最快的物料'
+    title: '低库存补货',
+    desc: '按缺口与提前期排序',
+    prompt: '查一下当前库存低于安全库存的物料，按缺口大小和采购提前期排出补货优先级'
   },
   {
     icon: ICONS.receipt,
-    title: '创建采购订单',
-    desc: '写操作，需人工审批',
-    prompt: '帮我创建一张采购订单，物料 ID 100，数量 50'
+    title: '项目用料明细',
+    desc: 'LHK-2026-001 已采购',
+    prompt: '查一下 LHK-2026-001 项目已经采购了哪些材料，明细和金额合计是多少'
+  },
+  {
+    icon: ICONS.trend,
+    title: '供应商评估',
+    desc: 'QSDC 评分选 A 级',
+    prompt: '按 QSDC 评分帮我推荐 A 级信用的台面和钢材供应商，说明各自的交付和账期情况'
   }
 ]
 

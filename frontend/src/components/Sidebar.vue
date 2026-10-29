@@ -2,13 +2,13 @@
   <aside class="sidebar">
     <!-- 品牌区：logo 带渐变描边环，右侧是主题切换 -->
     <div class="brand">
-      <!-- 品牌标：擎驰机车标识（SVG 矢量图形），
+      <!-- 品牌标：利环康实验设备标识（SVG 矢量图形），
            放在 1px 描边容器里保持原色，深色主题下提亮一档保证可见 -->
       <div class="brand-mark" aria-hidden="true">
         <img :src="logoMark" alt="" />
       </div>
       <div class="brand-text">
-        <span class="brand-name">擎驰机车</span>
+        <span class="brand-name">利环康实验设备</span>
         <span class="brand-sub">采购智能助手</span>
       </div>
       <button

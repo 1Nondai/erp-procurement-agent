@@ -29,7 +29,7 @@
           @blur="isFocused = false"
           @keydown.enter.exact="handleEnter"
           @input="autoResize"
-          placeholder="描述你的采购需求，例如：对比 NGK / 博世 / 电装三家火花塞报价并生成对比图表"
+          placeholder="描述你的采购需求，例如：对比理化板与环氧树脂板台面的供应商报价和价差"
           rows="1"
           :disabled="streaming || disabled"
           class="input-textarea"
