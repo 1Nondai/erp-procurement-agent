@@ -1,9 +1,9 @@
 ---
 name: web-scraper
 description: "网页抓取工具 | 从沙箱内直接发起 HTTP 请求获取网页内容，解析 HTML 并转换为干净的 Markdown 文件保存到 /analysis/temp/。支持内网 URL（如 http://39.100.100.28/...）。触发词：抓取网页、网页转markdown、爬取内容、保存网页、scrape webpage、fetch and save"
-author: Boss
+author: 1Nondai
 metadata:
-  openclaw:
+  agent:
     emoji: 🕷️
     tags: [web, scraper, markdown, html-parsing, direct-http]
 ---

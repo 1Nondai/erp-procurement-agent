@@ -1,9 +1,9 @@
 ---
 name: web-content-fetcher
 description: "网页内容获取工具 | 当常规爬虫被过滤时，使用替代服务获取网页内容。支持：1) r.jina.ai - 最稳定 2) markdown.new - Cloudflare 专用 3) defuddle.md - 备用方案。触发词：获取网页内容、网页转markdown、内容抓取、fetch webpage、bypass cloudflare"
-author: Boss
+author: 1Nondai
 metadata:
-  openclaw:
+  agent:
     emoji: 🌐
     tags: [web, fetch, markdown, cloudflare, bypass]
 ---
