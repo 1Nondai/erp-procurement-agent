@@ -44,3 +44,10 @@ httpx>=0.28.0                # 异步 HTTP 客户端（沙箱连接 / MCP / 工�
 python-dotenv>=1.2.0         # .env 加载（env_utils 统一入口）
 PyYAML>=6.0.0                # 子 Agent YAML 配置 / url_mapping / 记忆 frontmatter
 numpy>=2.5.0                 # RAG 向量计算（余弦相似度检索）
+
+# ---- 可观测性（LLM / Agent 链路追踪）----
+# langfuse 5.x 以 OpenTelemetry 为底座：通过 LangChain callback 自动采集
+# agent / LLM / tool 三类 span，业务代码零改动。
+# 未安装、未配置密钥或 LANGFUSE_ENABLED=false 时自动降级为 no-op，
+# 不影响对话主流程（详见 docs/Langfuse可观测性接入.md）。
+langfuse>=5.0,<6.0

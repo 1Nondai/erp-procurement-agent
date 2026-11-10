@@ -22,6 +22,7 @@ from agent.schema import (
     ChatResponse,
     Message,
 )
+from agent.observability import instrument_config
 from api_view.agent_loader import agent_loader
 from api_view.identity import resolve_identity
 # 复用 history.py 里的消息读取辅助函数：兼容 LC 消息对象，避免重复实现
@@ -322,6 +323,16 @@ async def stream_chat_response(
     # 身份来自请求头（api_view/identity.py 已做白名单校验与兜底），不再硬编码
     context = {"user_id": user_id, "username": username or user_id}
     config = agent_loader.create_config(thread_id, user_id=user_id)
+    # 可观测性：挂载 Langfuse callback 与 trace 属性。
+    # user_id → trace.user_id，thread_id → trace.session_id（多轮对话串成一条会话），
+    # stage 区分「首次提问」与「HITL 中断后恢复」，便于在控制台按维度过滤。
+    # 追踪未启用时原样返回 config，主流程零影响。
+    config = instrument_config(
+        config,
+        user_id=user_id,
+        thread_id=config["configurable"]["thread_id"],
+        stage="resume" if resume_data is not None else "chat",
+    )
     collected_content = ""
     # 工具调用登记表：tool_call_id → 工具信息 dict。
     # P1 修复：原实现用"栈 + 盲弹栈顶"配对工具开始/结束——

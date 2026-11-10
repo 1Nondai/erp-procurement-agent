@@ -57,7 +57,7 @@ LOCAL_BASE_URL = os.getenv('LOCAL_BASE_URL')
 # 默认值仅供本地开发；生产环境务必通过环境变量注入（不要把密码写进代码）。
 POSTGRES_URI = os.getenv(
     'POSTGRES_URI',
-    'postgresql://postgres:postgres@localhost:5432/langgraph_dblocalhost:5432/langgraph_db',
+    'postgresql://postgres:***@localhost:5432/langgraph_db',
 )
 
 # RAG 知识库持久化目录（Chroma 向量库落盘位置）
@@ -66,6 +66,35 @@ RAG_CHROMA_DIR = os.getenv('RAG_CHROMA_DIR', str(_PROJECT_ROOT / 'src' / 'rag' /
 RAG_EMBEDDING_MODEL = os.getenv('RAG_EMBEDDING_MODEL', 'embedding-3')
 # 检索返回的 top-k 条数
 RAG_TOP_K = int(os.getenv('RAG_TOP_K', '5'))
+
+# ============================================================
+# 可观测性：Langfuse 链路追踪
+# ============================================================
+# 说明：agent/observability/langfuse_tracing.py 优先从本模块取这些值，
+# 取不到才回落到 os.getenv —— 这样既遵守「密钥只在 env_utils 读」的约定，
+# 又保证该模块能脱离项目单独导入（脚本 / 测试 / 其他服务复用）。
+#
+# 留空时的行为：只要 PUBLIC_KEY 与 SECRET_KEY 都有值就自动开启追踪；
+# 想强制关闭（如本地调试不想上报）把 LANGFUSE_ENABLED 设为 'false'。
+LANGFUSE_ENABLED = os.getenv('LANGFUSE_ENABLED')
+LANGFUSE_PUBLIC_KEY = os.getenv('LANGFUSE_PUBLIC_KEY')
+LANGFUSE_SECRET_KEY = os.getenv('LANGFUSE_SECRET_KEY')
+# 服务地址：云版按区域选择；自托管填内网地址
+LANGFUSE_BASE_URL = os.getenv('LANGFUSE_BASE_URL', 'https://cloud.langfuse.com')
+# 采样率 0~1（生产流量大时用 0.1 之类，只上报十分之一）
+LANGFUSE_SAMPLE_RATE = os.getenv('LANGFUSE_SAMPLE_RATE')
+# 环境 / 版本标签，用于在控制台区分 dev 与 prod 数据
+LANGFUSE_ENVIRONMENT = os.getenv('LANGFUSE_ENVIRONMENT')
+LANGFUSE_RELEASE = os.getenv('LANGFUSE_RELEASE')
+# 批量上报：攒够 N 条或每 M 秒推一次
+LANGFUSE_FLUSH_AT = os.getenv('LANGFUSE_FLUSH_AT')
+LANGFUSE_FLUSH_INTERVAL = os.getenv('LANGFUSE_FLUSH_INTERVAL')
+LANGFUSE_TIMEOUT = os.getenv('LANGFUSE_TIMEOUT')
+# 敏感信息脱敏开关（默认开）
+LANGFUSE_MASK_ENABLED = os.getenv('LANGFUSE_MASK_ENABLED')
+# 启动时校验密钥（会发一次 HTTP 请求，默认关）
+LANGFUSE_AUTH_CHECK = os.getenv('LANGFUSE_AUTH_CHECK')
+LANGFUSE_DEBUG = os.getenv('LANGFUSE_DEBUG')
 
 # ============================================================
 # 缺失关键配置的告警（import 时提示一次，运行期不再重复刷屏）

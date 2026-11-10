@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api_view.web_config import API_TITLE, API_VERSION, API_DESCRIPTION, CORS_ALLOWED_ORIGINS
 from api_view.api import chat, history
 from api_view.agent_loader import agent_loader
+from agent.observability import init_tracing, shutdown_tracing, tracing_status
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,12 @@ async def lifespan(app: FastAPI):
     # 应用启动时执行
     # ============================================================
     logger.info("正在启动 %s v%s ...", API_TITLE, API_VERSION)
+
+    # 可观测性：必须在 Agent / LLM 客户端构建之前完成 OTel 初始化，
+    # 否则启动阶段跑过的 LangChain run 不会产生 span。
+    # 未安装 SDK / 未配置密钥 / 显式关闭时自动降级，不阻断启动。
+    tracing_ready = init_tracing()
+    logger.info("Langfuse 链路追踪: %s", "已启用" if tracing_ready else "未启用（已降级）")
 
     # 初始化 Agent（沙箱创建 + 工具加载，冷启动 30-60s）
     await agent_loader.initialize()
@@ -59,6 +66,10 @@ async def lifespan(app: FastAPI):
         await agent_loader.shutdown()
     except Exception:  # noqa: BLE001
         logger.warning("关闭时清理沙箱失败", exc_info=True)
+
+    # 可观测性：退出前把缓冲区里的 trace 推干净（异步批量上报，
+    # 不 flush 会丢掉最后几秒的数据）。失败只记日志，不影响退出。
+    shutdown_tracing()
 
 
 # 创建 FastAPI 应用
@@ -125,7 +136,9 @@ async def health_check():
     return {
         "status": "healthy",
         "service": API_TITLE,
-        "version": API_VERSION
+        "version": API_VERSION,
+        # 追踪状态只读本地内存，不做任何网络请求，可安全用于探活
+        "tracing": tracing_status(),
     }
 
 
