@@ -4,6 +4,7 @@
 ![Python](https://img.shields.io/badge/Python-3.12-3776ab)
 ![Vue](https://img.shields.io/badge/Vue-3-42b883)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169e1)
+![Observability](https://img.shields.io/badge/Observability-Langfuse-6d28d9)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 > 面向实验台器具制造企业的采购 Agent：用自然语言完成**查料、比价、看库存、下单改单**，
@@ -49,6 +50,7 @@
 | **沙箱自愈** | 代理句柄"换芯不换壳"：沙箱挂了就地重建，graph/中间件/工具闭包全部无感知；连续失败熔断止损 | `sandbox_proxy.py` · `middlewares/sandbox_health.py` |
 | **多用户隔离** | `X-User-Id` → `/memories/{user_id}/`，白名单校验防路径穿越 | `src/api_view/identity.py` |
 | **流式前端** | Vue 3 + SSE：token、工具调用过程、审批卡片、深浅主题 | `frontend/src/` |
+| **可观测性** | 一轮对话一条 trace：主/子 Agent、每次 LLM 与工具调用的输入输出、token 与耗时；未配置密钥时自动降级，业务零影响 | `src/agent/observability/` |
 
 ## 三、架构
 
@@ -69,6 +71,7 @@ flowchart LR
     REPO --> PG[(PostgreSQL<br/>erp schema)]
     A --> RAG[(RAG 知识库<br/>JSONL + 余弦检索)]
     A --> CKPT[(PostgreSQL<br/>checkpoint · Store)]
+    A -.LangChain callback.-> LF[Langfuse<br/>trace · span · 成本]
 ```
 
 一次下单的完整链路：
@@ -143,6 +146,22 @@ python start_web.py            # 后端 8090 + 前端 3000
 - 首次启动要建沙箱、加载 MCP 工具，**30–60 秒属正常**
 - `--backend-only` / `--frontend-only` 可单独起
 
+### 5.（可选）打开 Langfuse 追踪
+
+不配也能正常跑。想看到每轮对话的完整调用链（哪次 LLM 慢、哪个工具返回了什么、这轮花了多少 token），
+在 `.env` 里取消注释并填上：
+
+```ini
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+```
+
+重启后启动日志会打印 `Langfuse 链路追踪: 已启用`，`/health` 也能看到状态。
+
+> 内置价目表没有 DeepSeek：要在控制台 Settings → Models 手动加一条 `deepseek-v4-pro` 并填单价，
+> 成本统计才准（不加的话 token 数正常、成本显示 0）。
+
 ## 五、目录结构
 
 ```
@@ -156,6 +175,7 @@ python start_web.py            # 后端 8090 + 前端 3000
 │   └── smoke_mcp.py            # MCP 层自检：连真实 Server 逐个调 7 个工具
 ├── src/
 │   ├── agent/                  # Agent 核心（主 Agent / 中间件 / 子 Agent YAML / 沙箱 / 工具）
+│   │   └── observability/      #   Langfuse 追踪：降级闸门 / trace 注入 / 脱敏 / 生命周期
 │   ├── api_view/               # FastAPI（SSE 流式 / 历史 / 身份 / 连接池）
 │   ├── mcp_server/
 │   │   ├── db.py               #   PostgreSQL 连接池（含 Windows 事件循环兼容）
@@ -169,6 +189,7 @@ python start_web.py            # 后端 8090 + 前端 3000
 ├── tests/                      # 纯标准库单测（身份校验 / 订单幂等），CI 直接跑
 ├── docs/ARCHITECTURE.md        # 架构与取舍
 ├── docs/EVALUATION.md          # 评测体系设计
+├── docs/Langfuse可观测性接入.md  # 追踪接入、trace 维度、实测坑与排错
 └── start_web.py                # 一键启动
 ```
 
@@ -192,6 +213,9 @@ cd frontend && npm run build
 
 # 4) RAG 评测（需要 embedding Key）
 python src/eval/run_eval.py --skip-answer   # 只测检索层
+
+# 5) 追踪是否生效（只读本地状态，不发网络请求）
+curl -s localhost:8090/health | python -c "import sys,json;print(json.load(sys.stdin)['tracing'])"
 ```
 
 `run_eval.py` 的三层：检索层（期望来源是否在 top-k）、答案层（要点覆盖）、
@@ -201,6 +225,7 @@ python src/eval/run_eval.py --skip-answer   # 只测检索层
 
 - [架构与取舍](docs/ARCHITECTURE.md) — 分层、数据模型、请求链路、每个决策否掉了什么
 - [评测体系设计](docs/EVALUATION.md) — 分层评测思路、用例设计原则、脚本说明
+- [Langfuse 可观测性接入](docs/Langfuse可观测性接入.md) — 接入步骤、trace 怎么用、实测踩过的坑
 
 ## License
 
